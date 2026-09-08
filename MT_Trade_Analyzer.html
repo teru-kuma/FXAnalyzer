@@ -274,12 +274,7 @@
         <h3>ファイルを読み込んでください</h3>
         <div class="hint">
           左の「ファイルを読み込む」から、MT4/MT5のHTMLレポート、または
-          ExportHistoryTSV が出力したTSVを選んでください。画面のどこにドロップしても読み込めます。<br>
-          動作を確かめるだけなら、下の「サンプルで動作確認」から内蔵データを読み込めます。
-        </div>
-        <div class="controls">
-          <button id="emptySample4">サンプルで動作確認（MT4形式）</button>
-          <button id="emptySample5">サンプルで動作確認（MT5形式）</button>
+          ExportHistoryTSV が出力したTSVを選んでください。画面のどこにドロップしても読み込めます。
         </div>
       </div>
 
@@ -383,8 +378,6 @@
         <div class="hint">マジック/EA名が取れない場合は、下の内容をそのまま貼って共有してください。</div>
         <div class="controls">
           <button id="copyDiag">診断情報をコピー</button>
-          <button id="selfTest">サンプルで動作確認（MT4形式）</button>
-          <button id="selfTest5">サンプルで動作確認（MT5形式）</button>
         </div>
         <pre class="diag" id="diag">ファイル未読込</pre>
       </section>
@@ -410,7 +403,7 @@
    4) 文字コード自動判定（Shift_JIS / windows-125x / UTF-8）。
    5) マジックと EA 名を分離抽出。[sl] [tp] so: from# などの
       MT が自動付加する文字列は除去してから判定する。
-   6) 取れなかったときに原因が見える診断パネルと内蔵サンプル検証。
+   6) 取れなかったときに原因が見える診断パネル。
 
    コード内の正規表現では非ASCII文字を \\uXXXX で表記している
    （NBSP や全角空白を直接書くと不可視文字混入の原因になるため）。
@@ -2514,7 +2507,9 @@ function drawFallback(cv, eq, dates) {
   }
 }
 
-/* ----------------------------------------------- サンプルによる動作確認
+/* ------------------------------------------- 回帰テスト用の内蔵サンプル
+   画面には出さない。パーサを触ったときに壊れていないかを
+   コンソールから selfCheck() で確認するためだけに持っている。
    MT4 DetailedStatement の実構造を再現したデータ。
    ヘッダーは14セル（Profit で終端）、決済行だけ15セル目に無名のコメント列が付く。
    v0.5 がマジックを取れなかったのは、この「ヘッダーに存在しない列」を
@@ -2542,40 +2537,6 @@ var SAMPLE_MT5 = [
 '<tr><td>2023.01.05 10:00:00</td><td>300</td><td>EURJPY</td><td>buy</td><td>0.10</td><td>140.000</td><td>139.000</td><td>141.000</td><td>2023.01.05 18:00:00</td><td>140.500</td><td>-1.00</td><td>0.00</td><td>500.00</td><td>magic:777001 GridMaster</td></tr>',
 '<tr><td>2023.01.06 10:00:00</td><td>301</td><td>EURJPY</td><td>sell</td><td>0.10</td><td>141.000</td><td>142.000</td><td>140.000</td><td>2023.01.06 18:00:00</td><td>141.800</td><td>-1.00</td><td>0.00</td><td>-800.00</td><td>magic:777001 GridMaster</td></tr>',
 '</table></body></html>'].join('\n');
-
-function runSample(html, name) {
-  /* サンプルは読み込み済みのソースを置き換える。
-     4000件読み込んだ後に押して全部消える事故があったので確認を挟む。 */
-  var real = state.sources.filter(function (x) { return x.label !== 'SAMPLE'; });
-  if (real.length && !confirm('読み込み済みのデータ（' + state.trades.length
-      + ' 件）をサンプルに置き換えます。よろしいですか？')) {
-    return null;
-  }
-  var res = parseReport(html);
-  res.diag.fileName = name;
-  res.diag.encoding = 'サンプル（内蔵）';
-  var label = 'SAMPLE';
-  res.trades.forEach(function (t) { t.source = label; t.key = label + ':' + t.key; });
-  state.sources = [{ fileName: name, label: label, encoding: 'サンプル（内蔵）',
-                     diag: res.diag, trades: res.trades }];
-  rebuildFromSources();
-  /* 以前はここで診断タブへ飛ばしていたが、
-     空状態からサンプルを読んだときに結果ではなく診断が開くのは不自然。
-     診断タブから押した場合はそのまま診断に留まる。 */
-  return res;
-}
-document.getElementById('emptySample4').addEventListener('click', function () {
-  runSample(SAMPLE_MT4, 'SAMPLE_DetailedStatement.htm');
-});
-document.getElementById('emptySample5').addEventListener('click', function () {
-  runSample(SAMPLE_MT5, 'SAMPLE_ReportHistory.html');
-});
-document.getElementById('selfTest').addEventListener('click', function () {
-  runSample(SAMPLE_MT4, 'SAMPLE_DetailedStatement.htm');
-});
-document.getElementById('selfTest5').addEventListener('click', function () {
-  runSample(SAMPLE_MT5, 'SAMPLE_ReportHistory.html');
-});
 
 /* 期待値との自動照合。コンソールで selfCheck() を実行 */
 window.selfCheck = function () {
