@@ -3,181 +3,263 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>MT4/MT5 Trade Analyzer (v0.6)</title>
+<title>MT4/MT5 Trade Analyzer (v0.7)</title>
 <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 <style>
   :root{
-    --bg:#eef1f5; --panel:#fff; --line:#dce1e8; --ink:#1c2430; --sub:#65727f;
+    --bg:#f4f6f9; --panel:#fff; --line:#e2e6ec; --ink:#1c2430; --sub:#6b7684;
     --accent:#2563eb; --pos:#0a8f3c; --neg:#c62828; --warn:#8a5300; --warnbg:#fff6e0;
   }
   *{box-sizing:border-box}
   body{font-family:"Segoe UI","Hiragino Kaku Gothic ProN","Yu Gothic UI",sans-serif;
-       margin:0;padding:24px 16px;background:var(--bg);color:var(--ink)}
-  .container{max-width:1360px;margin:0 auto;background:var(--panel);
-             padding:22px 24px 30px;border-radius:10px;box-shadow:0 1px 3px rgba(0,0,0,.08)}
-  h1{margin:0 0 4px;font-size:22px}
-  h3{margin:26px 0 8px;font-size:15px;border-left:4px solid var(--accent);padding-left:8px}
-  .ver{font-size:13px;color:var(--sub);font-weight:normal}
-  .drop{border:2px dashed var(--line);border-radius:8px;padding:18px;text-align:center;
-        color:var(--sub);font-size:14px;margin:16px 0;transition:.15s}
-  .drop.over{border-color:var(--accent);background:#f2f7ff;color:var(--accent)}
-  .controls{display:flex;gap:14px;flex-wrap:wrap;align-items:center;margin:14px 0;font-size:14px}
-  .controls label{color:var(--sub)}
-  select,button,input[type=text]{padding:6px 10px;border:1px solid var(--line);
-        border-radius:5px;background:#fff;font:inherit;color:inherit}
+       margin:0;background:var(--bg);color:var(--ink);font-size:14px}
+  .page{max-width:1500px;margin:0 auto;padding:18px 18px 40px}
+  .page-head{margin-bottom:14px}
+  h1{margin:0 0 2px;font-size:21px}
+  .ver{font-size:12px;color:var(--sub);font-weight:normal}
+  h2{margin:0 0 8px;font-size:12px;letter-spacing:.04em;color:var(--sub);
+     text-transform:uppercase;font-weight:700}
+  h3{margin:0 0 10px;font-size:14px}
+  .hint{font-size:11.5px;color:var(--sub);line-height:1.6}
+
+  /* ---- 2カラム。左は固定幅で常に見える絞り込み、右が結果 ---- */
+  .layout{display:grid;grid-template-columns:264px minmax(0,1fr);gap:16px;align-items:start}
+  .side{display:flex;flex-direction:column;gap:12px;position:sticky;top:18px;
+        max-height:calc(100vh - 36px);overflow-y:auto}
+  .main{display:flex;flex-direction:column;gap:14px;min-width:0}
+  @media (max-width:980px){
+    .layout{grid-template-columns:1fr}
+    .side{position:static;max-height:none}
+  }
+
+  .panel,.card{background:var(--panel);border:1px solid var(--line);border-radius:9px;
+               padding:12px 13px}
+  .panel:empty{display:none}
+  .card{padding:14px 16px}
+
+  select,button,input[type=text],input[type=date]{
+    padding:5px 8px;border:1px solid var(--line);border-radius:5px;
+    background:#fff;font:inherit;font-size:13px;color:inherit}
   button{cursor:pointer;background:#f7f9fc}
   button:hover{background:#eef3fb;border-color:var(--accent)}
-  .stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:10px;margin:16px 0}
-  .stat-card{background:#f4f7fa;border:1px solid var(--line);padding:10px;border-radius:6px;text-align:center}
-  .stat-card .label{font-size:12px;color:var(--sub)}
-  .stat-card .value{font-size:19px;font-weight:700;margin-top:3px}
-  #chart-container{position:relative;height:360px;margin:14px 0}
+  .side select,.side input[type=text]{width:100%}
+  .fieldlabel{display:block;font-size:11.5px;color:var(--sub);margin:8px 0 3px}
+  .chk{display:flex;align-items:center;gap:6px;font-size:12.5px;margin-top:7px;cursor:pointer}
+  .row2{display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-top:8px}
+  .row2 input{width:100%}
+
+  .filebtn{display:block;text-align:center;background:var(--accent);color:#fff;
+           padding:9px;border-radius:6px;cursor:pointer;font-weight:600;font-size:13px}
+  .filebtn:hover{background:#1d4fd8}
+  .drop{margin-top:8px;border:2px dashed var(--line);border-radius:6px;padding:10px;
+        text-align:center;color:var(--sub);font-size:12px;transition:.15s}
+  .drop.over{border-color:var(--accent);background:#f2f7ff;color:var(--accent)}
+
+  /* ---- 期間のセグメントと前後ナビ ---- */
+  .seg{display:flex;flex-wrap:wrap;gap:4px}
+  .seg button{flex:1 1 auto;padding:5px 4px;font-size:12px}
+  .seg button.on{background:var(--ink);color:#fff;border-color:var(--ink)}
+  .navrow{display:flex;align-items:center;gap:6px;margin-top:8px}
+  .navrow button{width:30px;padding:3px 0;font-size:15px;line-height:1}
+  .navrow span{flex:1;text-align:center;font-size:12.5px;font-weight:600}
+
+  /* ---- 複数選択のチェックリスト ---- */
+  .listhead{display:flex;justify-content:space-between;align-items:baseline;gap:6px}
+  .listhead a{color:var(--accent);font-size:11px;cursor:pointer;text-decoration:none}
+  .listhead a:hover{text-decoration:underline}
+  .listbox{margin-top:6px;border:1px solid var(--line);border-radius:6px;
+           max-height:190px;overflow-y:auto}
+  .listbox label{display:flex;align-items:center;gap:7px;padding:4px 8px;
+                 font-size:12.5px;cursor:pointer;border-bottom:1px solid #f2f4f7}
+  .listbox label:last-child{border-bottom:none}
+  .listbox label:hover{background:#f5f8fd}
+  .listbox .cnt{margin-left:auto;color:var(--sub);font-size:11px}
+  .listbox .nm{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .filterbox{width:100%;margin-top:6px}
+
+  /* ---- 統計カード ---- */
+  .stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(128px,1fr));gap:10px}
+  .stat-card{background:var(--panel);border:1px solid var(--line);padding:10px 12px;
+             border-radius:9px}
+  .stat-card .label{font-size:11px;color:var(--sub)}
+  .stat-card .value{font-size:20px;font-weight:700;margin-top:2px}
+
+  #chart-container{position:relative;height:400px}
+
   table{width:100%;border-collapse:collapse;font-size:12.5px}
-  th,td{border:1px solid var(--line);padding:5px 8px;text-align:left;white-space:nowrap}
-  th{background:#f1f4f8;position:sticky;top:0}
+  th,td{border-bottom:1px solid var(--line);padding:5px 8px;text-align:left;white-space:nowrap}
+  th{background:#f7f9fc;position:sticky;top:0;font-size:11.5px;color:var(--sub)}
   td.num,th.num{text-align:right}
+  th[data-k]{cursor:pointer;user-select:none}
+  th[data-k]:hover{color:var(--accent)}
+  th[data-k] .arrow{color:var(--accent);font-size:10px;margin-left:3px}
   .positive{color:var(--pos)}
   .negative{color:var(--neg)}
   .scroll{overflow:auto;max-height:440px;border:1px solid var(--line);border-radius:6px}
-  .banner{padding:11px 13px;border-radius:6px;font-size:13.5px;line-height:1.65;margin:12px 0}
+
+  .banner{padding:10px 12px;border-radius:8px;font-size:12.5px;line-height:1.65}
   .banner.ok{background:#eaf6ee;border:1px solid #bfe3ca}
   .banner.warn{background:var(--warnbg);border:1px solid #e8cf94;color:var(--warn)}
   .banner.info{background:#eaf1fd;border:1px solid #c3d6f7}
-  details{margin-top:20px;border:1px solid var(--line);border-radius:6px;padding:10px 12px;background:#fafbfd}
-  summary{cursor:pointer;font-weight:600;font-size:14px}
+  .banner + .banner{margin-top:8px}
+
+  details.card > summary{cursor:pointer;font-weight:600;font-size:13.5px}
+  details.card[open] > summary{margin-bottom:10px}
   pre.diag{font-family:Consolas,monospace;font-size:11.5px;line-height:1.55;
-           background:#1e242c;color:#d6dde6;padding:12px;border-radius:6px;overflow:auto;max-height:460px}
-  .hint{font-size:12px;color:var(--sub);margin-top:6px}
+           background:#1e242c;color:#d6dde6;padding:12px;border-radius:6px;
+           overflow:auto;max-height:460px}
+  .controls{display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin:8px 0;font-size:12.5px}
   #mapTable input[type=text]{padding:2px 6px;font-size:12.5px;width:100%;min-width:140px}
-  #mapTable td{vertical-align:middle}
-  th[data-k]{cursor:pointer;user-select:none;white-space:nowrap}
-  th[data-k]:hover{background:#e6ecf5}
-  th[data-k] .arrow{color:var(--accent);font-size:10px;margin-left:3px}
-  .tag{display:inline-block;background:#e6ecf5;border-radius:4px;padding:1px 6px;font-size:11px;color:#3a4a5f}
+  #srcTable td,#srcTable th{font-size:11.5px;padding:3px 6px}
+  .tag{display:inline-block;background:#eef1f6;border-radius:4px;padding:1px 6px;
+       font-size:11px;color:#3a4a5f;font-weight:normal}
 </style>
 </head>
 <body>
-<div class="container">
-  <h1>MT4 / MT5 Trade Analyzer <span class="ver">v0.6</span></h1>
-  <div class="hint">完全クライアントサイド動作（読み込んだデータは外部へ送信されません）</div>
+<div class="page">
+  <header class="page-head">
+    <h1>MT4 / MT5 Trade Analyzer <span class="ver">v0.7</span></h1>
+    <div class="hint" id="headSummary">完全クライアントサイド動作（読み込んだデータは外部へ送信されません）</div>
+  </header>
 
-  <div class="drop" id="drop">
-    ここに <b>DetailedStatement.htm</b> / MT5レポート / TSV をドロップ、または
-    <input type="file" id="fileInput" accept=".html,.htm,.csv,.tsv,.txt" multiple>
-    <div class="hint">複数ファイル可。MT4とMT5、複数口座をまとめて読み込めます（追加読み込み方式）</div>
-  </div>
+  <div class="layout">
+    <!-- ============ 左サイドバー: 読み込みと絞り込み ============ -->
+    <aside class="side">
+      <section class="panel">
+        <h2>データ</h2>
+        <label class="filebtn">
+          ファイルを読み込む
+          <input type="file" id="fileInput" accept=".html,.htm,.csv,.tsv,.txt" multiple hidden>
+        </label>
+        <div class="drop" id="drop">ここにドロップも可</div>
+        <div class="hint">MT4/MT5のHTMLレポート・TSV。複数口座をまとめて追加できます。</div>
+        <div id="sources"></div>
+      </section>
 
-  <div id="sources"></div>
-  <div id="banner"></div>
+      <section class="panel">
+        <h2>期間</h2>
+        <div class="seg" id="periodSeg"></div>
+        <div class="navrow">
+          <button id="periodPrev" title="前の期間へ">‹</button>
+          <span id="periodLabel">全期間</span>
+          <button id="periodNext" title="次の期間へ">›</button>
+        </div>
+        <div class="row2">
+          <input type="date" id="dateFrom">
+          <input type="date" id="dateTo">
+        </div>
+        <div class="hint" id="periodHint"></div>
+      </section>
 
-  <div class="controls">
-    <label>ソース</label><select id="sourceSelect"><option value="all">すべて</option></select>
-    <label>EA名</label><select id="eaSelect"><option value="all">すべて</option></select>
-    <label>マジック</label><select id="magicSelect"><option value="all">すべて</option></select>
-    <label>シンボル</label><select id="symbolSelect"><option value="all">すべて</option></select>
-    <label><input type="checkbox" id="inclOpen"> 未決済も含む</label>
-    <label><input type="checkbox" id="mergePartial" checked> 分割決済をまとめる</label>
-    <label><input type="checkbox" id="mergeSameTime"> 同時刻の一括決済もまとめる</label>
-  </div>
+      <section class="panel">
+        <h2>表示</h2>
+        <label class="fieldlabel">表示単位</label>
+        <select id="unit">
+          <option value="profit">金額</option>
+          <option value="pips">pips</option>
+        </select>
+        <label class="fieldlabel">集計単位</label>
+        <select id="groupBy">
+          <option value="ea">EA名</option>
+          <option value="ea_magic">EA名 + マジック</option>
+          <option value="ea_symbol">EA名 + シンボル</option>
+          <option value="magic">マジック</option>
+        </select>
+        <label class="chk"><input type="checkbox" id="inclOpen"> 未決済も含む</label>
+        <label class="chk"><input type="checkbox" id="mergePartial" checked> 分割決済をまとめる</label>
+        <label class="chk"><input type="checkbox" id="mergeSameTime"> 同時刻の一括決済もまとめる</label>
+      </section>
 
-  <div class="controls">
-    <label>期間</label>
-    <select id="periodPreset"><option value="all">全期間</option></select>
-    <input type="date" id="dateFrom"> 〜 <input type="date" id="dateTo">
-    <button id="periodReset">全期間に戻す</button>
-  </div>
-  <div class="hint" id="periodHint"></div>
+      <section class="panel" id="panel-ea"></section>
+      <section class="panel" id="panel-magic"></section>
+      <section class="panel" id="panel-symbol"></section>
+      <section class="panel" id="panel-source"></section>
+    </aside>
 
-  <div class="controls">
-    <label>表示単位</label>
-    <select id="unit">
-      <option value="profit">金額</option>
-      <option value="pips">pips</option>
-    </select>
-    <span class="hint">口座通貨が違うものを混ぜて見るときはpipsが安全です</span>
-  </div>
+    <!-- ============ 右メイン: 結果 ============ -->
+    <main class="main">
+      <div id="banner"></div>
+      <div class="stats" id="stats"></div>
+      <div class="card"><div id="chart-container"><canvas id="equityChart"></canvas></div></div>
 
-  <div class="controls">
-    <label>集計単位</label>
-    <select id="groupBy">
-      <option value="ea">EA名</option>
-      <option value="ea_magic">EA名 + マジック</option>
-      <option value="ea_symbol">EA名 + シンボル</option>
-      <option value="magic">マジック</option>
-    </select>
-    <label><input type="checkbox" id="autoMerge" checked> EA名の表記ゆれをマジック単位で統合</label>
-    <label>マジック抽出パターン</label>
-    <input type="text" id="magicPattern" size="24" placeholder="空欄=自動判定">
-    <button id="applyPattern">適用</button>
-  </div>
+      <div class="card">
+        <h3>集計 <span id="groupCount" class="tag"></span></h3>
+        <div class="scroll">
+          <table id="groupTable">
+            <thead><tr>
+              <th data-k="label">グループ</th><th data-k="magics">マジック</th>
+              <th data-k="symbols">シンボル</th><th class="num" data-k="n">取引数</th>
+              <th class="num" data-k="net">純損益</th><th class="num" data-k="pips">合計pips</th>
+              <th class="num" data-k="winRate">勝率</th><th class="num" data-k="pf">PF</th>
+              <th class="num" data-k="maxDD">最大DD</th><th class="num" data-k="avg">平均</th>
+            </tr></thead><tbody></tbody>
+          </table>
+        </div>
+      </div>
 
-  <div class="stats" id="stats"></div>
-  <div id="chart-container"><canvas id="equityChart"></canvas></div>
+      <div class="card">
+        <h3>取引一覧 <span id="tradeCount" class="tag"></span></h3>
+        <div class="scroll">
+          <table id="tradeTable">
+            <thead><tr>
+              <th data-k="openTime">エントリー</th><th data-k="time">イグジット</th>
+              <th data-k="ticket">チケット</th><th data-k="symbol">シンボル</th>
+              <th data-k="type">種別</th><th data-k="ea">EA名</th><th data-k="magic">マジック</th>
+              <th class="num" data-k="profit">損益</th><th class="num" data-k="pips">pips</th>
+              <th data-k="source">ソース</th><th data-k="raw">Comment(生)</th>
+            </tr></thead><tbody></tbody>
+          </table>
+        </div>
+      </div>
 
-  <h3>集計</h3>
-  <div class="scroll">
-    <table id="groupTable">
-      <thead><tr>
-        <th data-k="label">グループ</th><th data-k="magics">マジック</th>
-        <th data-k="symbols">シンボル</th><th class="num" data-k="n">取引数</th>
-        <th class="num" data-k="net">純損益</th><th class="num" data-k="pips">合計pips</th>
-        <th class="num" data-k="winRate">勝率</th><th class="num" data-k="pf">PF</th>
-        <th class="num" data-k="maxDD">最大DD</th><th class="num" data-k="avg">平均</th>
-      </tr></thead><tbody></tbody>
-    </table>
-  </div>
+      <details class="card" id="mapBox">
+        <summary>EA名の対応表（手動指定） <span id="mapCount" class="tag"></span></summary>
+        <div class="hint">
+          マジックごとにEA名を手で指定できます。空欄にすると自動判定に戻ります。
+          マジック <code>0</code> は「マジックが取れなかった取引」のまとめ行なので、
+          ここに名前を付けると該当する全取引が同じ名前になります。
+          入力はこのブラウザに自動保存され、次に同じマジックを読み込んだときにも適用されます。
+          別のPCやブラウザで使う場合、または保存が効かない場合はJSONで書き出してください。
+        </div>
+        <div class="controls">
+          <label class="chk"><input type="checkbox" id="autoMerge" checked> EA名の表記ゆれをマジック単位で統合</label>
+          <button id="mapExport">JSONで書き出し</button>
+          <label>JSONを読み込み <input type="file" id="mapImport" accept=".json,.txt"></label>
+          <button id="mapClear">手動指定を全消去</button>
+          <span class="hint" id="mapStatus"></span>
+        </div>
+        <div class="controls">
+          <label>マジック抽出パターン</label>
+          <input type="text" id="magicPattern" size="24" placeholder="空欄=自動判定">
+          <button id="applyPattern">適用</button>
+        </div>
+        <div class="scroll">
+          <table id="mapTable">
+            <thead><tr>
+              <th>マジック</th><th>自動判定</th><th>EA名（手動指定）</th>
+              <th class="num">取引数</th><th class="num">純損益</th><th>例（生コメント）</th>
+            </tr></thead><tbody></tbody>
+          </table>
+        </div>
+      </details>
 
-  <h3>EA名の対応表 <span id="mapCount" class="tag"></span></h3>
-  <div class="hint">
-    マジックごとにEA名を手で指定できます。空欄にすると自動判定に戻ります。
-    マジック <code>0</code> は「マジックが取れなかった取引」のまとめ行なので、
-    ここに名前を付けると該当する全取引が同じ名前になります。
-    入力はこのブラウザに自動保存され、次に同じマジックを読み込んだときにも適用されます。
-    別のPCやブラウザで使う場合、または保存が効かない場合はJSONで書き出してください。
-  </div>
-  <div class="controls">
-    <button id="mapExport">JSONで書き出し</button>
-    <label>JSONを読み込み <input type="file" id="mapImport" accept=".json,.txt"></label>
-    <button id="mapClear">手動指定を全消去</button>
-    <span class="hint" id="mapStatus"></span>
-  </div>
-  <div class="scroll">
-    <table id="mapTable">
-      <thead><tr>
-        <th>マジック</th><th>自動判定</th><th>EA名（手動指定）</th>
-        <th class="num">取引数</th><th class="num">純損益</th><th>例（生コメント）</th>
-      </tr></thead><tbody></tbody>
-    </table>
-  </div>
-
-  <h3>取引一覧 <span id="tradeCount" class="tag"></span></h3>
-  <div class="scroll">
-    <table id="tradeTable">
-      <thead><tr>
-        <th data-k="openTime">エントリー</th><th data-k="time">イグジット</th>
-        <th data-k="ticket">チケット</th><th data-k="symbol">シンボル</th>
-        <th data-k="type">種別</th><th data-k="ea">EA名</th><th data-k="magic">マジック</th>
-        <th class="num" data-k="profit">損益</th><th class="num" data-k="pips">pips</th>
-        <th data-k="source">ソース</th><th data-k="raw">Comment(生)</th>
-      </tr></thead><tbody></tbody>
-    </table>
-  </div>
-
-  <details id="diagBox">
-    <summary>診断情報（列位置・生セル内容・抽出成功率）</summary>
+      <details class="card" id="diagBox">
+        <summary>診断情報（列位置・生セル内容・抽出成功率）</summary>
     <div class="hint">マジック/EA名がまだ取れない場合は、下の内容をそのまま貼って共有してください。</div>
     <div style="margin:8px 0">
       <button id="copyDiag">診断情報をコピー</button>
       <button id="selfTest">サンプルで動作確認（MT4形式）</button>
       <button id="selfTest5">サンプルで動作確認（MT5形式）</button>
     </div>
-    <pre class="diag" id="diag">ファイル未読込</pre>
-  </details>
+        <pre class="diag" id="diag">ファイル未読込</pre>
+      </details>
+    </main>
+  </div>
 </div>
 
 <script>
 /* =========================================================================
-   MT4 / MT5 Trade Analyzer  v0.6
+   MT4 / MT5 Trade Analyzer  v0.7
 
    v0.5 からの変更点
    1) col.comment を「ヘッダー行のセル数」で境界判定していたバグを撤去。
@@ -212,7 +294,8 @@ var RE_BAD   = /�/g;
 var UNKNOWN_EA = '(不明)';   /* 「(不明)」 */
 
 var state = { trades: [], sources: [], diag: null, chart: null,
-              pattern: '', overrides: {} };
+              pattern: '', overrides: {},
+              sel: {}, known: {}, listQuery: {} };
 
 /* ------------------------------------------- EA名の手動指定（マジック単位）
    自動判定はどこまで行っても推測なので、最後は手で決められるようにする。
@@ -266,14 +349,17 @@ document.getElementById('fileInput').addEventListener('change', function (e) {
   if (e.target.files.length) loadFiles(Array.from(e.target.files));
   e.target.value = '';   /* 同じファイルを選び直せるようにする */
 });
+/* サイドバーのドロップ枠は小さいので、ページのどこに落としても受け付ける */
 ['dragenter','dragover'].forEach(function (ev) {
-  drop.addEventListener(ev, function (e) { e.preventDefault(); drop.classList.add('over'); });
+  document.addEventListener(ev, function (e) { e.preventDefault(); drop.classList.add('over'); });
 });
 ['dragleave','drop'].forEach(function (ev) {
-  drop.addEventListener(ev, function (e) { e.preventDefault(); drop.classList.remove('over'); });
+  document.addEventListener(ev, function (e) { e.preventDefault(); drop.classList.remove('over'); });
 });
-drop.addEventListener('drop', function (e) {
-  if (e.dataTransfer.files.length) loadFiles(Array.from(e.dataTransfer.files));
+document.addEventListener('drop', function (e) {
+  if (e.dataTransfer && e.dataTransfer.files.length) {
+    loadFiles(Array.from(e.dataTransfer.files));
+  }
 });
 
 /* MT4/MT5 のレポートは Shift_JIS や windows-1251/1252 も普通にあるため自動判定 */
@@ -345,11 +431,8 @@ function rebuildFromSources() {
   state.sources.forEach(function (s) { countEaOk(s.trades, s.diag); });
 
   renderSources();
-  populateFilters();
-  populatePeriodOptions();
-  /* ファイルを足すとデータ範囲が変わるので、プリセット選択中は範囲を引き直す */
-  applyPreset(document.getElementById('periodPreset').value);
-  renderPeriodHint();
+  renderLists();
+  applyPeriod();   /* ファイルを足すとデータ範囲が変わるので引き直す */
   renderBanner();
   renderDiag();
   renderMapTable();
@@ -1137,38 +1220,135 @@ document.getElementById('copyDiag').addEventListener('click', function () {
   );
 });
 
+/* ------------------------------------------------ 複数選択のチェックリスト
+   単一のプルダウンだと「EA A と B だけ比べる」ができない。
+   チェックボックス方式にして、絞り込み検索と全選択/解除を付ける。
+
+   state.sel[key] は「選択されている値の Set」。
+   データを読み直したとき、既存の選択は維持し、新しく現れた値は選択済みにする
+   （読み込むたびに全部外れると使い物にならない）。 */
+var LISTS = [
+  { key: 'ea',     panel: 'panel-ea',     title: 'EA名',     of: function (t) { return t.ea; } },
+  { key: 'magic',  panel: 'panel-magic',  title: 'マジック',  of: function (t) { return t.magic; } },
+  { key: 'symbol', panel: 'panel-symbol', title: 'シンボル',  of: function (t) { return t.symbol || '-'; } },
+  { key: 'source', panel: 'panel-source', title: 'ソース',    of: function (t) { return t.source || '-'; } }
+];
+
+function listValues(spec) {
+  var counts = {};
+  for (var i = 0; i < state.trades.length; i++) {
+    var v = spec.of(state.trades[i]);
+    counts[v] = (counts[v] || 0) + 1;
+  }
+  var keys = Object.keys(counts);
+  if (spec.key === 'magic') {
+    keys.sort(function (a, b) { return (Number(a) || 0) - (Number(b) || 0); });
+  } else {
+    keys.sort(function (a, b) { return String(a).localeCompare(String(b), 'ja'); });
+  }
+  return keys.map(function (k) { return { value: k, count: counts[k] }; });
+}
+
+function syncSelections() {
+  LISTS.forEach(function (spec) {
+    var vals = listValues(spec);
+    var known = state.known[spec.key] || (state.known[spec.key] = {});
+    var sel = state.sel[spec.key] || (state.sel[spec.key] = new Set());
+    vals.forEach(function (v) {
+      if (!known[v.value]) {          /* 初出の値は選択済みで登場させる */
+        known[v.value] = true;
+        sel.add(v.value);
+      }
+    });
+  });
+}
+
+function renderList(spec) {
+  var el = document.getElementById(spec.panel);
+  var vals = listValues(spec);
+  if (!vals.length) { el.innerHTML = ''; return; }
+  var sel = state.sel[spec.key];
+  var q = (state.listQuery[spec.key] || '').toLowerCase();
+  var shown = q ? vals.filter(function (v) {
+    return String(v.value).toLowerCase().indexOf(q) >= 0;
+  }) : vals;
+
+  var html = '<div class="listhead"><h2>' + spec.title
+    + ' <span class="tag">' + sel.size + '/' + vals.length + '</span></h2>'
+    + '<span><a data-all="' + spec.key + '">全選択</a> / '
+    + '<a data-none="' + spec.key + '">解除</a></span></div>';
+  if (vals.length > 8) {
+    html += '<input type="text" class="filterbox" data-q="' + spec.key
+      + '" placeholder="絞り込み" value="' + esc(state.listQuery[spec.key] || '') + '">';
+  }
+  html += '<div class="listbox">' + shown.map(function (v) {
+    return '<label><input type="checkbox" data-sel="' + spec.key + '" value="'
+      + esc(v.value) + '"' + (sel.has(v.value) ? ' checked' : '') + '>'
+      + '<span class="nm">' + esc(v.value) + '</span>'
+      + '<span class="cnt">' + v.count + '</span></label>';
+  }).join('') + '</div>';
+  el.innerHTML = html;
+}
+
+function renderLists() {
+  syncSelections();
+  LISTS.forEach(renderList);
+}
+
+document.querySelector('.side').addEventListener('change', function (e) {
+  var el = e.target;
+  if (el.dataset && el.dataset.sel) {
+    var sel = state.sel[el.dataset.sel];
+    if (el.checked) sel.add(el.value); else sel.delete(el.value);
+    renderList(LISTS.filter(function (s) { return s.key === el.dataset.sel; })[0]);
+    render();
+  }
+});
+
+document.querySelector('.side').addEventListener('input', function (e) {
+  var el = e.target;
+  if (el.dataset && el.dataset.q) {
+    state.listQuery[el.dataset.q] = el.value;
+    var spec = LISTS.filter(function (s) { return s.key === el.dataset.q; })[0];
+    renderList(spec);
+    /* 再描画で入力欄が作り直されるのでフォーカスを戻す */
+    var box = document.querySelector('[data-q="' + el.dataset.q + '"]');
+    if (box) { box.focus(); box.setSelectionRange(box.value.length, box.value.length); }
+  }
+});
+
+document.querySelector('.side').addEventListener('click', function (e) {
+  var el = e.target;
+  var all = el.dataset ? el.dataset.all : null;
+  var none = el.dataset ? el.dataset.none : null;
+  if (!all && !none) return;
+  var key = all || none;
+  var spec = LISTS.filter(function (s) { return s.key === key; })[0];
+  var sel = state.sel[key];
+  /* 絞り込み中は表示されているものだけを対象にする */
+  var q = (state.listQuery[key] || '').toLowerCase();
+  listValues(spec).forEach(function (v) {
+    if (q && String(v.value).toLowerCase().indexOf(q) < 0) return;
+    if (all) sel.add(v.value); else sel.delete(v.value);
+  });
+  renderList(spec);
+  render();
+});
+
 /* -------------------------------------------------------------- フィルタ */
 var ESC_MAP = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' };
 function esc(s) {
   return String(s == null ? '' : s).replace(/[&<>"']/g, function (m) { return ESC_MAP[m]; });
 }
 
-function fill(id, values) {
-  var el = document.getElementById(id), cur = el.value;
-  el.innerHTML = '<option value="all">すべて</option>' + values.map(function (v) {
-    return '<option value="' + esc(v) + '">' + esc(v) + '</option>';
-  }).join('');
-  var opts = Array.from(el.options);
-  if (opts.some(function (o) { return o.value === cur; })) el.value = cur;
-}
-
-/* Set / Iterator は array-like ではないので Array.from を使う
-   （Array.prototype.slice.call では空配列になる） */
 function uniq(arr) { return Array.from(new Set(arr)); }
 
-function populateFilters() {
-  var t = state.trades;
-  fill('sourceSelect', uniq(t.map(function (x) { return x.source || '-'; })).sort());
-  fill('eaSelect', uniq(t.map(function (x) { return x.ea; })).sort());
-  fill('magicSelect', uniq(t.map(function (x) { return x.magic; })).sort(function (a, b) {
-    return (Number(a) || 0) - (Number(b) || 0);
-  }));
-  fill('symbolSelect', uniq(t.map(function (x) { return x.symbol; }).filter(Boolean)).sort());
-}
-
 /* ------------------------------------------------------------ 期間フィルタ
+   プルダウンではなくセグメントボタン + 前後ナビ。
+   「今週の1つ前」「先月」を見るのにプルダウンを開き直すのは手数が多い。
+
    基準日は「今日」ではなく「データの最終日」。
-   過去のアーカイブを読み込んだときに「直近3ヶ月」が常に0件になるのを避ける。
+   過去のアーカイブを読んだとき「今週」が常に0件になるのを避ける。
    並び替えに使っている t.time（決済日時、未決済はエントリー日時）で絞る。 */
 function ymd(t) { return (t.time || '').slice(0, 10); }
 
@@ -1184,8 +1364,7 @@ function dataRange() {
 }
 
 function fmtYmd(d) {
-  var mm = String(d.getMonth() + 1);
-  var dd = String(d.getDate());
+  var mm = String(d.getMonth() + 1), dd = String(d.getDate());
   return d.getFullYear() + '-' + (mm.length < 2 ? '0' + mm : mm)
     + '-' + (dd.length < 2 ? '0' + dd : dd);
 }
@@ -1200,74 +1379,128 @@ function shiftMonths(s, n) {
   return fmtYmd(d);
 }
 
-function populatePeriodOptions() {
-  var el = document.getElementById('periodPreset');
-  var cur = el.value;
-  var r = dataRange();
-  var opts = ['<option value="all">全期間</option>'];
-  if (r.max) {
-    opts.push('<option value="m1">直近1ヶ月</option>');
-    opts.push('<option value="m3">直近3ヶ月</option>');
-    opts.push('<option value="m6">直近6ヶ月</option>');
-    opts.push('<option value="m12">直近12ヶ月</option>');
-    var years = uniq(state.trades.map(function (t) { return ymd(t).slice(0, 4); })
-      .filter(Boolean)).sort().reverse();
-    years.forEach(function (y) {
-      opts.push('<option value="y' + y + '">' + y + '年</option>');
-    });
-  }
-  opts.push('<option value="custom">期間指定（日付を直接入力）</option>');
-  el.innerHTML = opts.join('');
-  if (Array.from(el.options).some(function (o) { return o.value === cur; })) el.value = cur;
+function addDays(s, n) {
+  var p = s.split('-');
+  var d = new Date(Number(p[0]), Number(p[1]) - 1, Number(p[2]));
+  d.setDate(d.getDate() + n);
+  return fmtYmd(d);
 }
 
-function applyPreset(v) {
+function startOfWeek(s) {          /* 月曜はじまり */
+  var p = s.split('-');
+  var d = new Date(Number(p[0]), Number(p[1]) - 1, Number(p[2]));
+  d.setDate(d.getDate() - ((d.getDay() + 6) % 7));
+  return fmtYmd(d);
+}
+
+var PERIODS = [
+  { id: 'all',   label: '全期間' },
+  { id: 'week',  label: '今週' },
+  { id: 'month', label: '今月' },
+  { id: 'year',  label: '今年' },
+  { id: 'm3',    label: '3ヶ月' },
+  { id: 'm6',    label: '6ヶ月' }
+];
+var period = { id: 'all', offset: 0 };   /* offset: 0=最新, -1=1つ前 */
+
+function resolvePeriod() {
   var r = dataRange();
-  var from = '', to = '';
-  if (v === 'all' || !r.max) {
-    from = ''; to = '';
-  } else if (v.charAt(0) === 'm') {
-    to = r.max;
-    from = shiftMonths(r.max, -Number(v.slice(1)));
-    if (from < r.min) from = r.min;
-  } else if (v.charAt(0) === 'y') {
-    from = v.slice(1) + '-01-01';
-    to = v.slice(1) + '-12-31';
-  } else {
-    return;   /* custom は入力欄の値をそのまま使う */
+  if (!r.max || period.id === 'all') return { from: '', to: '', label: '全期間' };
+  if (period.id === 'custom') {
+    return { from: document.getElementById('dateFrom').value,
+             to: document.getElementById('dateTo').value, label: '期間指定' };
   }
-  document.getElementById('dateFrom').value = from;
-  document.getElementById('dateTo').value = to;
+  var anchor = r.max, off = period.offset;
+
+  if (period.id === 'week') {
+    var ws = addDays(startOfWeek(anchor), off * 7);
+    return { from: ws, to: addDays(ws, 6), label: ws + ' の週' };
+  }
+  if (period.id === 'month') {
+    var ms = shiftMonths(anchor.slice(0, 7) + '-01', off);
+    return { from: ms, to: addDays(shiftMonths(ms, 1), -1), label: ms.slice(0, 7) };
+  }
+  if (period.id === 'year') {
+    var y = Number(anchor.slice(0, 4)) + off;
+    return { from: y + '-01-01', to: y + '-12-31', label: y + '年' };
+  }
+  var months = Number(period.id.slice(1));          /* m3 / m6 */
+  var to = shiftMonths(anchor, off * months);
+  return { from: shiftMonths(to, -months), to: to, label: '直近' + months + 'ヶ月' };
+}
+
+function renderPeriodSeg() {
+  document.getElementById('periodSeg').innerHTML = PERIODS.map(function (x) {
+    return '<button data-p="' + x.id + '"'
+      + (period.id === x.id ? ' class="on"' : '') + '>' + x.label + '</button>';
+  }).join('');
+  var fixed = (period.id === 'all' || period.id === 'custom');
+  document.getElementById('periodPrev').disabled = fixed;
+  document.getElementById('periodNext').disabled = fixed || period.offset >= 0;
 }
 
 function renderPeriodHint() {
   var r = dataRange();
   var el = document.getElementById('periodHint');
-  if (!r.max) { el.textContent = ''; return; }
-  var from = document.getElementById('dateFrom').value;
-  var to = document.getElementById('dateTo').value;
-  el.textContent = '対象期間: ' + (from || r.min) + ' 〜 ' + (to || r.max)
-    + '　／　データ全体: ' + r.min + ' 〜 ' + r.max
-    + '（「直近◯ヶ月」はデータ最終日 ' + r.max + ' が基準です）';
+  el.textContent = r.max
+    ? 'データ全体: ' + r.min + ' 〜 ' + r.max + '（期間の基準日はデータ最終日）'
+    : '';
 }
+
+function applyPeriod() {
+  var p = resolvePeriod();
+  if (period.id !== 'custom') {
+    document.getElementById('dateFrom').value = p.from;
+    document.getElementById('dateTo').value = p.to;
+  }
+  document.getElementById('periodLabel').textContent = p.label;
+  renderPeriodSeg();
+  renderPeriodHint();
+}
+
+document.getElementById('periodSeg').addEventListener('click', function (e) {
+  var id = e.target.dataset ? e.target.dataset.p : null;
+  if (!id) return;
+  period.id = id;
+  period.offset = 0;
+  applyPeriod();
+  render();
+});
+document.getElementById('periodPrev').addEventListener('click', function () {
+  period.offset--;
+  applyPeriod();
+  render();
+});
+document.getElementById('periodNext').addEventListener('click', function () {
+  if (period.offset < 0) period.offset++;
+  applyPeriod();
+  render();
+});
+/* 日付欄を直接いじったらプリセットの選択を外す */
+['dateFrom', 'dateTo'].forEach(function (id) {
+  document.getElementById(id).addEventListener('change', function () {
+    period.id = 'custom';
+    period.offset = 0;
+    applyPeriod();
+    render();
+  });
+});
 
 function filtered() {
   var from = document.getElementById('dateFrom').value;
   var to = document.getElementById('dateTo').value;
-  var ea = document.getElementById('eaSelect').value;
-  var mg = document.getElementById('magicSelect').value;
-  var sy = document.getElementById('symbolSelect').value;
-  var sc = document.getElementById('sourceSelect').value;
   var open = document.getElementById('inclOpen').checked;
+  var sel = state.sel;
   return state.trades.filter(function (t) {
     var d = ymd(t);
-    return (open || t.closed)
-      && (!from || (d && d >= from))
-      && (!to || (d && d <= to))
-      && (sc === 'all' || (t.source || '-') === sc)
-      && (ea === 'all' || t.ea === ea)
-      && (mg === 'all' || t.magic === mg)
-      && (sy === 'all' || t.symbol === sy);
+    if (!open && !t.closed) return false;
+    if (from && !(d && d >= from)) return false;
+    if (to && !(d && d <= to)) return false;
+    if (sel.ea && !sel.ea.has(t.ea)) return false;
+    if (sel.magic && !sel.magic.has(t.magic)) return false;
+    if (sel.symbol && !sel.symbol.has(t.symbol || '-')) return false;
+    if (sel.source && !sel.source.has(t.source || '-')) return false;
+    return true;
   });
 }
 
@@ -1438,6 +1671,7 @@ function render() {
     return g.label;
   });
   markSortHeader('groupTable');
+  document.getElementById('groupCount').textContent = rows.length + ' グループ';
 
   document.querySelector('#groupTable tbody').innerHTML = rows.map(function (g) {
     var syms = Array.from(g.symbols).filter(Boolean).join(', ');
@@ -1527,7 +1761,7 @@ function refreshIdentity() {
   consolidateEaByMagic(state.trades, state.diag);
   state.sources.forEach(function (s) { countEaOk(s.trades, s.diag); });
   buildWarnings(state.diag);
-  populateFilters();
+  renderLists();
   renderBanner();
   renderDiag();
   renderMapTable();
@@ -1800,32 +2034,12 @@ function runSelfCheck() {
 }
 
 /* ------------------------------------------------------------ イベント */
-['sourceSelect','eaSelect','magicSelect','symbolSelect','inclOpen','groupBy','unit']
-  .forEach(function (id) {
+['inclOpen','groupBy','unit'].forEach(function (id) {
   document.getElementById(id).addEventListener('change', render);
 });
 
-document.getElementById('periodPreset').addEventListener('change', function () {
-  applyPreset(this.value);
-  renderPeriodHint();
-  render();
-});
 
-/* 日付を直接いじったらプリセットは「期間指定」に切り替える */
-['dateFrom','dateTo'].forEach(function (id) {
-  document.getElementById(id).addEventListener('change', function () {
-    document.getElementById('periodPreset').value = 'custom';
-    renderPeriodHint();
-    render();
-  });
-});
 
-document.getElementById('periodReset').addEventListener('click', function () {
-  document.getElementById('periodPreset').value = 'all';
-  applyPreset('all');
-  renderPeriodHint();
-  render();
-});
 
 document.getElementById('autoMerge').addEventListener('change', function () {
   if (!state.diag) return;
