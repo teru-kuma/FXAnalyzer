@@ -182,6 +182,8 @@
   .side details > summary::-webkit-details-marker{display:none}
   .side details > summary::before{content:'▸';font-size:10px;color:var(--sub)}
   .side details[open] > summary::before{content:'▾'}
+  .side details.active-dim > summary{color:var(--accent)}
+  .side .tag.act{background:var(--accent);color:#fff}
   .tag{display:inline-block;background:#eef1f6;border-radius:4px;padding:1px 6px;
        font-size:11px;color:#3a4a5f;font-weight:normal}
 </style>
@@ -230,18 +232,6 @@
         <select id="unit">
           <option value="profit">金額</option>
           <option value="pips">pips</option>
-        </select>
-        <label class="fieldlabel">集計単位</label>
-        <select id="groupBy">
-          <option value="auto">自動（絞り込みに合わせる）</option>
-          <option value="total">合計（全体で1行）</option>
-          <option value="ea">EA名</option>
-          <option value="magic">マジック</option>
-          <option value="symbol">シンボル</option>
-          <option value="source">ソース</option>
-          <option value="ea_magic">EA名 + マジック</option>
-          <option value="ea_symbol">EA名 + シンボル</option>
-          <option value="magic_symbol">マジック + シンボル</option>
         </select>
         <label class="chk"><input type="checkbox" id="inclOpen"> 未決済も含む</label>
         <label class="chk"><input type="checkbox" id="mergePartial" checked> 分割決済をまとめる</label>
@@ -420,6 +410,7 @@ var UNKNOWN_EA = '(不明)';   /* 「(不明)」 */
 var state = { trades: [], sources: [], diag: null, chart: null,
               pattern: '', overrides: {},
               sel: {}, known: {}, listQuery: {}, listOpen: {},
+              activeDim: 'ea',   /* 絞り込みと集計に使う軸。一度に1つだけ */
               page: 0, tab: 'group', lastSig: '' };
 
 /* ------------------------------------------- EA名の手動指定（マジック単位）
@@ -459,12 +450,12 @@ function saveOverrides() {
    EA名の対応表は保存されるのに表示設定だけ毎回リセットされるのは不統一。
    絞り込みの選択内容はデータ次第で変わるので保存しない（設定だけ覚える）。 */
 var SET_KEY = 'mt_trade_analyzer_settings_v1';
-var SETTING_IDS = ['unit', 'groupBy', 'inclOpen', 'mergePartial',
+var SETTING_IDS = ['unit', 'inclOpen', 'mergePartial',
                    'mergeSameTime', 'autoMerge'];
 
 function saveSettings() {
   try {
-    var o = { pageSize: PAGE_SIZE, period: period.id };
+    var o = { pageSize: PAGE_SIZE, period: period.id, activeDim: state.activeDim };
     SETTING_IDS.forEach(function (id) {
       var el = document.getElementById(id);
       o[id] = (el.type === 'checkbox') ? el.checked : el.value;
@@ -490,6 +481,7 @@ function loadSettings() {
     document.getElementById('pageSize').value = String(PAGE_SIZE);
   }
   if (o.period) period.id = o.period;
+  if (o.activeDim && DIMS.indexOf(o.activeDim) >= 0) state.activeDim = o.activeDim;
 }
 
 function applyOverrides(trades) {
@@ -1454,8 +1446,12 @@ function renderList(spec) {
   /* 既定は閉じておく。開いたリストは高さ制限を付けないので、
      サイドバー自身のスクロール1本だけで済み、入れ子にならない。 */
   var opened = !!state.listOpen[spec.key];
-  var html = '<details' + (opened ? ' open' : '') + ' data-panel="' + spec.key + '">'
+  /* いまどの軸で絞って集計しているかが一目で分かるようにする */
+  var isActive = (spec.key === state.activeDim);
+  var html = '<details' + (opened ? ' open' : '') + ' data-panel="' + spec.key + '"'
+    + (isActive ? ' class="active-dim"' : '') + '>'
     + '<summary><span>' + spec.title + '</span>'
+    + (isActive ? '<span class="tag act">集計中</span>' : '')
     + '<span class="tag">' + sel.size + '/' + vals.length + '</span></summary>'
     + '<div class="listhead" style="margin-top:6px"><span class="hint">'
     + (sel.size === vals.length ? 'すべて選択中' : (vals.length - sel.size) + ' 件を除外中')
@@ -1525,9 +1521,10 @@ function filterSignature() {
     document.getElementById('dateFrom').value,
     document.getElementById('dateTo').value,
     document.getElementById('inclOpen').checked,
-    LISTS.map(function (spec) {
-      var s2 = sel[spec.key];
-      return spec.key + ':' + (s2 ? Array.from(s2).sort().join(',') : '');
+    state.activeDim,
+    [state.activeDim, 'source'].map(function (k) {
+      var s2 = sel[k];
+      return k + ':' + (s2 ? Array.from(s2).sort().join(',') : '');
     }).join('|')
   ].join('#');
 }
@@ -1559,9 +1556,13 @@ document.getElementById('pageSize').addEventListener('change', function () {
 document.querySelector('.side').addEventListener('change', function (e) {
   var el = e.target;
   if (el.dataset && el.dataset.sel) {
-    var sel = state.sel[el.dataset.sel];
+    var key = el.dataset.sel;
+    /* 軸を切り替えるときは、いま触ったリストの選択だけを残す。
+       他の軸に絞り込みが残っていると、切り替えた瞬間に0件になって驚く。 */
+    if (key !== 'source' && key !== state.activeDim) setActiveDim(key);
+    var sel = state.sel[key];
     if (el.checked) sel.add(el.value); else sel.delete(el.value);
-    renderList(LISTS.filter(function (s) { return s.key === el.dataset.sel; })[0]);
+    renderLists();
     render();
   }
 });
@@ -1578,18 +1579,12 @@ document.querySelector('.side').addEventListener('input', function (e) {
   }
 });
 
-/* ある値だけを見る。他のリストは全選択に戻す */
+/* ある値だけを見る。その軸をアクティブにして、他の軸は全選択へ戻す */
 function isolateValue(key, val) {
-  LISTS.forEach(function (spec) {
-    var sel = state.sel[spec.key];
-    if (spec.key === key) {
-      sel.clear();
-      sel.add(val);
-    } else {
-      listValues(spec).forEach(function (v) { sel.add(v.value); });
-    }
-  });
-  state.listQuery[key] = state.listQuery[key] || '';
+  if (key !== 'source') setActiveDim(key);
+  var sel = state.sel[key];
+  sel.clear();
+  sel.add(val);
   renderLists();
   render();
 }
@@ -1607,6 +1602,7 @@ document.querySelector('.side').addEventListener('click', function (e) {
   var none = el.dataset ? el.dataset.none : null;
   if (!all && !none) return;
   var key = all || none;
+  if (key !== 'source' && key !== state.activeDim) setActiveDim(key);
   var spec = LISTS.filter(function (s) { return s.key === key; })[0];
   var sel = state.sel[key];
   /* 絞り込み中は表示されているものだけを対象にする */
@@ -1771,20 +1767,52 @@ document.getElementById('periodNext').addEventListener('click', function () {
   });
 });
 
+/* ------------------------------------------------------------ 絞り込み
+   軸は一度に1つだけ。EA名を選べばEA名で、マジックを選べばマジックで、
+   シンボルを選べばシンボルで絞り、そのまま集計単位にもなる。
+
+   以前は4つのリストをANDで重ねていたが、
+   「マジックだけ見たい」ときにEA名のチェックが外れていると0件になり、
+   さらに集計単位を別途選び直す必要があって手数が多かった。
+
+   ソースだけは軸ではなく常時効く絞り込みにしている
+   （どの口座のデータを見るかは、何で集計するかとは別の話のため）。 */
+var DIMS = ['ea', 'magic', 'symbol'];
+
+function dimValueOf(t, dim) {
+  if (dim === 'magic') return t.magic;
+  if (dim === 'symbol') return t.symbol || '-';
+  return t.ea;
+}
+
+/* 操作したリストを集計軸にし、他の軸は全選択へ戻す */
+function setActiveDim(dim) {
+  state.activeDim = dim;
+  DIMS.forEach(function (k) {
+    if (k === dim) return;
+    var sel = state.sel[k];
+    if (!sel) return;
+    LISTS.forEach(function (spec) {
+      if (spec.key !== k) return;
+      listValues(spec).forEach(function (v) { sel.add(v.value); });
+    });
+  });
+}
+
 function filtered() {
   var from = document.getElementById('dateFrom').value;
   var to = document.getElementById('dateTo').value;
   var open = document.getElementById('inclOpen').checked;
-  var sel = state.sel;
+  var dim = state.activeDim;
+  var selDim = state.sel[dim];
+  var selSrc = state.sel.source;
   return state.trades.filter(function (t) {
     var d = ymd(t);
     if (!open && !t.closed) return false;
     if (from && !(d && d >= from)) return false;
     if (to && !(d && d <= to)) return false;
-    if (sel.ea && !sel.ea.has(t.ea)) return false;
-    if (sel.magic && !sel.magic.has(t.magic)) return false;
-    if (sel.symbol && !sel.symbol.has(t.symbol || '-')) return false;
-    if (sel.source && !sel.source.has(t.source || '-')) return false;
+    if (selSrc && !selSrc.has(t.source || '-')) return false;
+    if (selDim && !selDim.has(dimValueOf(t, dim))) return false;
     return true;
   });
 }
@@ -1915,37 +1943,6 @@ function groupKeyOf(t, mode) {
 
 var DIM_LABEL = { ea: 'EA名', magic: 'マジック', symbol: 'シンボル', source: 'ソース' };
 
-/* 絞り込みが効いている（全選択ではない）リストを返す。
-   値が1種類しかないリストは絞りようが無いので対象外。 */
-function narrowedDims() {
-  var out = [];
-  LISTS.forEach(function (spec) {
-    var total = listValues(spec).length;
-    var sel = state.sel[spec.key];
-    if (total > 1 && sel && sel.size < total) out.push(spec.key);
-  });
-  return out;
-}
-
-/* 「自動」のとき、絞り込んだリストをそのまま集計単位にする。
-   マジックだけ絞ったならマジック別、シンボルだけならシンボル別。
-   集計単位をいちいち選び直す手間を無くすため。 */
-function resolveGroupMode() {
-  var chosen = document.getElementById('groupBy').value;
-  if (chosen !== 'auto') return { mode: chosen, auto: false, dims: [] };
-
-  var nd = narrowedDims();
-  if (!nd.length) return { mode: 'ea', auto: true, dims: [] };
-  if (nd.length === 1) return { mode: nd[0], auto: true, dims: nd };
-
-  /* 2つ以上絞られていたら組み合わせる。組み合わせが無い場合は先頭を使う */
-  var order = ['ea', 'magic', 'symbol', 'source'];
-  var picked = order.filter(function (k) { return nd.indexOf(k) >= 0; });
-  var pair = picked.slice(0, 2).join('_');
-  var known = { ea_magic: 1, ea_symbol: 1, magic_symbol: 1 };
-  return { mode: known[pair] ? pair : picked[0], auto: true, dims: picked };
-}
-
 function render() {
   var trades = filtered();
   var unit = document.getElementById('unit').value;      /* 'profit' or 'pips' */
@@ -1959,9 +1956,11 @@ function render() {
   var nm = document.getElementById('noMatch');
   if (!trades.length && state.trades.length) {
     var why = [];
-    LISTS.forEach(function (spec) {
+    ['source', state.activeDim].forEach(function (k) {
+      var spec = LISTS.filter(function (x) { return x.key === k; })[0];
+      if (!spec) return;
       var total = listValues(spec).length;
-      var sel = state.sel[spec.key];
+      var sel = state.sel[k];
       if (sel && total && sel.size < total) {
         why.push(spec.title + ' ' + sel.size + '/' + total + ' 件を選択');
       }
@@ -1994,9 +1993,8 @@ function render() {
 
   drawChart(s ? s.equity : [0], s ? s.dates : ['']);
 
-  /* 集計単位でグループ化（自動のときは絞り込みから決める） */
-  var gm = resolveGroupMode();
-  var mode = gm.mode;
+  /* 集計軸は絞り込みに使っている軸そのもの */
+  var mode = state.activeDim;
   var groups = new Map();
   for (var i = 0; i < trades.length; i++) {
     var t = trades[i];
@@ -2037,17 +2035,8 @@ function render() {
   document.getElementById('thMaxDD').firstChild.nodeValue = isPips ? '最大DD(pips)' : '最大DD';
   document.getElementById('thAvg').firstChild.nodeValue = isPips ? '平均(pips)' : '平均';
 
-  var MODE_LABEL = {
-    total: '合計', ea: 'EA名', magic: 'マジック', symbol: 'シンボル', source: 'ソース',
-    ea_magic: 'EA名 + マジック', ea_symbol: 'EA名 + シンボル',
-    magic_symbol: 'マジック + シンボル'
-  };
   document.getElementById('groupNote').textContent =
-    (gm.auto
-      ? '自動: ' + (MODE_LABEL[mode] || mode) + ' で集計中'
-        + (gm.dims.length ? '（' + gm.dims.map(function (k) { return DIM_LABEL[k]; }).join('・')
-                            + ' を絞り込んでいるため）' : '（絞り込みなしのため既定のEA名）')
-      : '集計単位: ' + (MODE_LABEL[mode] || mode))
+    DIM_LABEL[mode] + ' で集計（左のリストで軸を切り替えられます）'
     + '　／　取引数・勝率・PF・最大DD・平均は表示単位「' + u + '」で計算'
     + (isPips ? '（pipsを算出できない取引は除外）' : '');
 
@@ -2522,7 +2511,7 @@ function runSelfCheck() {
 }
 
 /* ------------------------------------------------------------ イベント */
-['inclOpen','groupBy','unit'].forEach(function (id) {
+['inclOpen','unit'].forEach(function (id) {
   document.getElementById(id).addEventListener('change', function () {
     saveSettings();
     render();
