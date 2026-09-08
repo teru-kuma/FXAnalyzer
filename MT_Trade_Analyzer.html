@@ -31,8 +31,10 @@
   .layout{display:grid;grid-template-columns:264px minmax(0,1fr);gap:16px;
           flex:1 1 auto;min-height:0}
   /* overscroll-behavior:contain で、端まで来ても隣のペインへスクロールが伝播しない */
+  /* 中身は省略表示で収まる作りなので、横スクロールは出さない（保険） */
   .side{display:flex;flex-direction:column;gap:12px;
-        overflow-y:auto;overscroll-behavior:contain;min-height:0;padding-right:4px}
+        overflow-y:auto;overflow-x:hidden;overscroll-behavior:contain;
+        min-height:0;padding-right:4px}
   .main{display:flex;flex-direction:column;gap:14px;min-width:0;
         overflow-y:auto;overscroll-behavior:contain;min-height:0;
         padding-right:4px;padding-bottom:24px}
@@ -63,7 +65,10 @@
   .fieldlabel{display:block;font-size:11.5px;color:var(--sub);margin:8px 0 3px}
   .chk{display:flex;align-items:center;gap:6px;font-size:12.5px;margin-top:7px;cursor:pointer}
   .row2{display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-top:8px}
-  .row2 input{width:100%}
+  /* input[type=date] は固有の最小幅を持つため、min-width:0 を入れないと
+     グリッドの列幅に収まらずサイドバーに横スクロールが出る */
+  .row2 > *{min-width:0}
+  .row2 input{width:100%;min-width:0}
 
   .filebtn{display:block;text-align:center;background:var(--accent);color:#fff;
            padding:9px;border-radius:6px;cursor:pointer;font-weight:600;font-size:13px}
@@ -95,10 +100,14 @@
   /* ---- ドリルダウンのパンくず ---- */
   .crumbs{display:flex;align-items:center;gap:6px;flex-wrap:wrap;font-size:12.5px}
   .crumbs:empty{display:none}
+  .crumbs .crlabel{color:var(--sub);font-size:11px}
+  .crumbs .crnext{color:var(--accent);font-weight:600}
   .crumbs .cr{display:inline-flex;align-items:center;gap:6px;background:var(--panel);
               border:1px solid var(--line);border-radius:999px;padding:3px 6px 3px 11px}
-  .crumbs .cr.root{padding:3px 11px;cursor:pointer}
-  .crumbs .cr.root:hover{border-color:var(--accent);color:var(--accent)}
+  .crumbs .cr.cur{background:#eef3fb;border-color:#c3d6f7}
+  .crumbs .cr.root{padding:3px 11px}
+  .crumbs .cr.root[data-crumb]{cursor:pointer}
+  .crumbs .cr.root[data-crumb]:hover{border-color:var(--accent);color:var(--accent)}
   .crumbs .cr .dim{color:var(--sub);font-size:11px}
   .crumbs .cr .x{border:none;background:#eef1f6;color:var(--sub);border-radius:50%;
                  width:17px;height:17px;line-height:1;padding:0;cursor:pointer;font-size:12px}
@@ -108,6 +117,8 @@
   /* 集計表の行はクリックで1段掘り下げられる */
   #groupTable tbody tr.drillable{cursor:pointer}
   #groupTable tbody tr.drillable:hover{background:#f2f7ff}
+  #groupTable .dchev{color:var(--sub);margin-right:5px;font-weight:700}
+  #groupTable tbody tr.drillable:hover .dchev{color:var(--accent)}
   .filterbox{width:100%;margin-top:6px}
 
   /* ---- 統計カード ---- */
@@ -1887,16 +1898,25 @@ function drillTo(n) {
   render();
 }
 
+/* 掘り下げていないときも出しておく。
+   掘ってから初めて現れる作りだと、そんな機能があること自体に気づけない。 */
 function renderCrumbs() {
   var el = document.getElementById('crumbs');
-  if (!state.drill.length) { el.innerHTML = ''; return; }
-  var html = '<span class="cr root" data-crumb="0">全体</span>';
+  var deep = state.drill.length > 0;
+  var html = '<span class="crlabel">表示中</span>'
+    + '<span class="cr root' + (deep ? '' : ' cur') + '"'
+    + (deep ? ' data-crumb="0" title="全体に戻す"' : '') + '>全体</span>';
   state.drill.forEach(function (d, i) {
-    html += '<span class="sep">›</span><span class="cr">'
+    var isLast = (i === state.drill.length - 1);
+    html += '<span class="sep">›</span><span class="cr' + (isLast ? ' cur' : '') + '">'
       + '<span class="dim">' + DIM_LABEL[d.dim] + '</span>'
       + esc(dimLabelOf(d.dim, d.value))
       + '<button class="x" data-crumb="' + i + '" title="ここまで戻す">×</button></span>';
   });
+  if (state.activeDim) {
+    html += '<span class="sep">›</span>'
+      + '<span class="crnext">' + DIM_LABEL[state.activeDim] + ' 別に表示中</span>';
+  }
   el.innerHTML = html;
 }
 
@@ -2120,8 +2140,11 @@ function render() {
   document.getElementById('thMaxDD').firstChild.nodeValue = isPips ? '最大DD(pips)' : '最大DD';
   document.getElementById('thAvg').firstChild.nodeValue = isPips ? '平均(pips)' : '平均';
 
+  var nextLabel = mode ? nextDimAfter(mode) : null;
   document.getElementById('groupNote').textContent =
-    DIM_LABEL[mode] + ' で集計（左のリストで軸を切り替えられます）'
+    (mode ? DIM_LABEL[mode] + ' で集計' : '全体を集計')
+    + (nextLabel ? '　／　行をクリックすると ' + DIM_LABEL[nextLabel] + ' 別に掘り下げます'
+                 : '　／　これ以上は掘り下げられません')
     + '　／　取引数・勝率・PF・最大DD・平均は表示単位「' + u + '」で計算'
     + (isPips ? '（pipsを算出できない取引は除外）' : '');
 
@@ -2136,7 +2159,7 @@ function render() {
        EA名でまとめるとマジックが何個も並ぶため、無いと読めない。 */
     return '<tr' + (canDrill ? ' class="drillable" data-gv="' + esc(g.raw) + '"' : '') + '>'
       + '<td title="' + esc(g.label) + (canDrill ? '（クリックで掘り下げ）' : '') + '">'
-        + esc(g.label) + '</td>'
+        + (canDrill ? '<span class="dchev">›</span>' : '') + esc(g.label) + '</td>'
       + '<td title="' + esc(mgs) + '">' + esc(mgs) + '</td>'
       + '<td title="' + esc(syms) + '">' + esc(syms || '-') + '</td>'
       + '<td class="num">' + g.s.n + '</td>'
@@ -2536,7 +2559,9 @@ function runSample(html, name) {
   state.sources = [{ fileName: name, label: label, encoding: 'サンプル（内蔵）',
                      diag: res.diag, trades: res.trades }];
   rebuildFromSources();
-  showTab('diag');
+  /* 以前はここで診断タブへ飛ばしていたが、
+     空状態からサンプルを読んだときに結果ではなく診断が開くのは不自然。
+     診断タブから押した場合はそのまま診断に留まる。 */
   return res;
 }
 document.getElementById('emptySample4').addEventListener('click', function () {
