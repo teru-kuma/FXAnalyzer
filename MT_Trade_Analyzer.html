@@ -1,0 +1,1712 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>MT4/MT5 Trade Analyzer (v0.6)</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<style>
+  :root{
+    --bg:#eef1f5; --panel:#fff; --line:#dce1e8; --ink:#1c2430; --sub:#65727f;
+    --accent:#2563eb; --pos:#0a8f3c; --neg:#c62828; --warn:#8a5300; --warnbg:#fff6e0;
+  }
+  *{box-sizing:border-box}
+  body{font-family:"Segoe UI","Hiragino Kaku Gothic ProN","Yu Gothic UI",sans-serif;
+       margin:0;padding:24px 16px;background:var(--bg);color:var(--ink)}
+  .container{max-width:1360px;margin:0 auto;background:var(--panel);
+             padding:22px 24px 30px;border-radius:10px;box-shadow:0 1px 3px rgba(0,0,0,.08)}
+  h1{margin:0 0 4px;font-size:22px}
+  h3{margin:26px 0 8px;font-size:15px;border-left:4px solid var(--accent);padding-left:8px}
+  .ver{font-size:13px;color:var(--sub);font-weight:normal}
+  .drop{border:2px dashed var(--line);border-radius:8px;padding:18px;text-align:center;
+        color:var(--sub);font-size:14px;margin:16px 0;transition:.15s}
+  .drop.over{border-color:var(--accent);background:#f2f7ff;color:var(--accent)}
+  .controls{display:flex;gap:14px;flex-wrap:wrap;align-items:center;margin:14px 0;font-size:14px}
+  .controls label{color:var(--sub)}
+  select,button,input[type=text]{padding:6px 10px;border:1px solid var(--line);
+        border-radius:5px;background:#fff;font:inherit;color:inherit}
+  button{cursor:pointer;background:#f7f9fc}
+  button:hover{background:#eef3fb;border-color:var(--accent)}
+  .stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:10px;margin:16px 0}
+  .stat-card{background:#f4f7fa;border:1px solid var(--line);padding:10px;border-radius:6px;text-align:center}
+  .stat-card .label{font-size:12px;color:var(--sub)}
+  .stat-card .value{font-size:19px;font-weight:700;margin-top:3px}
+  #chart-container{position:relative;height:360px;margin:14px 0}
+  table{width:100%;border-collapse:collapse;font-size:12.5px}
+  th,td{border:1px solid var(--line);padding:5px 8px;text-align:left;white-space:nowrap}
+  th{background:#f1f4f8;position:sticky;top:0}
+  td.num,th.num{text-align:right}
+  .positive{color:var(--pos)}
+  .negative{color:var(--neg)}
+  .scroll{overflow:auto;max-height:440px;border:1px solid var(--line);border-radius:6px}
+  .banner{padding:11px 13px;border-radius:6px;font-size:13.5px;line-height:1.65;margin:12px 0}
+  .banner.ok{background:#eaf6ee;border:1px solid #bfe3ca}
+  .banner.warn{background:var(--warnbg);border:1px solid #e8cf94;color:var(--warn)}
+  .banner.info{background:#eaf1fd;border:1px solid #c3d6f7}
+  details{margin-top:20px;border:1px solid var(--line);border-radius:6px;padding:10px 12px;background:#fafbfd}
+  summary{cursor:pointer;font-weight:600;font-size:14px}
+  pre.diag{font-family:Consolas,monospace;font-size:11.5px;line-height:1.55;
+           background:#1e242c;color:#d6dde6;padding:12px;border-radius:6px;overflow:auto;max-height:460px}
+  .hint{font-size:12px;color:var(--sub);margin-top:6px}
+  #mapTable input[type=text]{padding:2px 6px;font-size:12.5px;width:100%;min-width:140px}
+  #mapTable td{vertical-align:middle}
+  .tag{display:inline-block;background:#e6ecf5;border-radius:4px;padding:1px 6px;font-size:11px;color:#3a4a5f}
+</style>
+</head>
+<body>
+<div class="container">
+  <h1>MT4 / MT5 Trade Analyzer <span class="ver">v0.6</span></h1>
+  <div class="hint">完全クライアントサイド動作（読み込んだデータは外部へ送信されません）</div>
+
+  <div class="drop" id="drop">
+    ここに <b>DetailedStatement.htm</b> / MT5レポート / TSV をドロップ、または
+    <input type="file" id="fileInput" accept=".html,.htm,.csv,.tsv,.txt" multiple>
+    <div class="hint">複数ファイル可。MT4とMT5、複数口座をまとめて読み込めます（追加読み込み方式）</div>
+  </div>
+
+  <div id="sources"></div>
+  <div id="banner"></div>
+
+  <div class="controls">
+    <label>ソース</label><select id="sourceSelect"><option value="all">すべて</option></select>
+    <label>EA名</label><select id="eaSelect"><option value="all">すべて</option></select>
+    <label>マジック</label><select id="magicSelect"><option value="all">すべて</option></select>
+    <label>シンボル</label><select id="symbolSelect"><option value="all">すべて</option></select>
+    <label><input type="checkbox" id="inclOpen"> 未決済も含む</label>
+  </div>
+
+  <div class="controls">
+    <label>期間</label>
+    <select id="periodPreset"><option value="all">全期間</option></select>
+    <input type="date" id="dateFrom"> 〜 <input type="date" id="dateTo">
+    <button id="periodReset">全期間に戻す</button>
+  </div>
+  <div class="hint" id="periodHint"></div>
+
+  <div class="controls">
+    <label>表示単位</label>
+    <select id="unit">
+      <option value="profit">金額</option>
+      <option value="pips">pips</option>
+    </select>
+    <span class="hint">口座通貨が違うものを混ぜて見るときはpipsが安全です</span>
+  </div>
+
+  <div class="controls">
+    <label>集計単位</label>
+    <select id="groupBy">
+      <option value="ea">EA名</option>
+      <option value="ea_magic">EA名 + マジック</option>
+      <option value="ea_symbol">EA名 + シンボル</option>
+      <option value="magic">マジック</option>
+    </select>
+    <label><input type="checkbox" id="autoMerge" checked> EA名の表記ゆれをマジック単位で統合</label>
+    <label>マジック抽出パターン</label>
+    <input type="text" id="magicPattern" size="24" placeholder="空欄=自動判定">
+    <button id="applyPattern">適用</button>
+  </div>
+
+  <div class="stats" id="stats"></div>
+  <div id="chart-container"><canvas id="equityChart"></canvas></div>
+
+  <h3>集計</h3>
+  <div class="scroll">
+    <table id="groupTable">
+      <thead><tr>
+        <th>グループ</th><th>マジック</th><th>シンボル</th><th class="num">取引数</th>
+        <th class="num">純損益</th><th class="num">合計pips</th><th class="num">勝率</th>
+        <th class="num">PF</th><th class="num">最大DD</th><th class="num">平均</th>
+      </tr></thead><tbody></tbody>
+    </table>
+  </div>
+
+  <h3>EA名の対応表 <span id="mapCount" class="tag"></span></h3>
+  <div class="hint">
+    マジックごとにEA名を手で指定できます。空欄にすると自動判定に戻ります。
+    マジック <code>0</code> は「マジックが取れなかった取引」のまとめ行なので、
+    ここに名前を付けると該当する全取引が同じ名前になります。
+    入力はこのブラウザに自動保存され、次に同じマジックを読み込んだときにも適用されます。
+    別のPCやブラウザで使う場合、または保存が効かない場合はJSONで書き出してください。
+  </div>
+  <div class="controls">
+    <button id="mapExport">JSONで書き出し</button>
+    <label>JSONを読み込み <input type="file" id="mapImport" accept=".json,.txt"></label>
+    <button id="mapClear">手動指定を全消去</button>
+    <span class="hint" id="mapStatus"></span>
+  </div>
+  <div class="scroll">
+    <table id="mapTable">
+      <thead><tr>
+        <th>マジック</th><th>自動判定</th><th>EA名（手動指定）</th>
+        <th class="num">取引数</th><th class="num">純損益</th><th>例（生コメント）</th>
+      </tr></thead><tbody></tbody>
+    </table>
+  </div>
+
+  <h3>取引一覧 <span id="tradeCount" class="tag"></span></h3>
+  <div class="scroll">
+    <table id="tradeTable">
+      <thead><tr>
+        <th>エントリー</th><th>イグジット</th><th>チケット</th><th>シンボル</th><th>種別</th>
+        <th>EA名</th><th>マジック</th><th class="num">損益</th><th class="num">pips</th>
+        <th>ソース</th><th>Comment(生)</th>
+      </tr></thead><tbody></tbody>
+    </table>
+  </div>
+
+  <details id="diagBox">
+    <summary>診断情報（列位置・生セル内容・抽出成功率）</summary>
+    <div class="hint">マジック/EA名がまだ取れない場合は、下の内容をそのまま貼って共有してください。</div>
+    <div style="margin:8px 0">
+      <button id="copyDiag">診断情報をコピー</button>
+      <button id="selfTest">サンプルで動作確認（MT4形式）</button>
+      <button id="selfTest5">サンプルで動作確認（MT5形式）</button>
+    </div>
+    <pre class="diag" id="diag">ファイル未読込</pre>
+  </details>
+</div>
+
+<script>
+/* =========================================================================
+   MT4 / MT5 Trade Analyzer  v0.6
+
+   v0.5 からの変更点
+   1) col.comment を「ヘッダー行のセル数」で境界判定していたバグを撤去。
+      MT4 DetailedStatement はコメント列がヘッダーに存在せず、データ行だけ
+      15セル目に付く。ヘッダー長で判定すると必ず Profit 列を指してしまい、
+      Comment 欄に損益が出てマジックが全部 0 になっていた。
+   2) 行ごとに type 列の実位置からズレ量(shift)を求め、ヘッダー由来の
+      列インデックスを行単位で補正する。
+   3) コメントセルは Profit より右を行末から内容ベースで探索する
+      （数値・日時・種別・シンボルを除外）。
+   4) 文字コード自動判定（Shift_JIS / windows-125x / UTF-8）。
+   5) マジックと EA 名を分離抽出。[sl] [tp] so: from# などの
+      MT が自動付加する文字列は除去してから判定する。
+   6) 取れなかったときに原因が見える診断パネルと内蔵サンプル検証。
+
+   コード内の正規表現では非ASCII文字を \\uXXXX で表記している
+   （NBSP や全角空白を直接書くと不可視文字混入の原因になるため）。
+   ========================================================================= */
+
+var TYPE_WORDS = ['buy','sell','buy limit','sell limit','buy stop','sell stop',
+  'buy stop limit','sell stop limit','balance','credit','deposit','withdrawal',
+  'correction','bonus','commission','close at stop','in','out','in/out'];
+var TYPE_SET = new Set(TYPE_WORDS);
+var BALANCE_TYPES = new Set(['balance','credit','deposit','withdrawal',
+  'correction','bonus','commission']);
+
+var RE_DT    = /\d{4}[.\/-]\d{1,2}[.\/-]\d{1,2}[ T]+\d{1,2}:\d{2}/;
+var RE_NUM   = /^[-+]?[\d  ,]*\.?\d+$/;
+var RE_WORD  = /[A-Za-z぀-ヿ一-鿿]/;
+var RE_SPACE = /[ 　]/g;
+var RE_BAD   = /�/g;
+var UNKNOWN_EA = '(不明)';   /* 「(不明)」 */
+
+var state = { trades: [], sources: [], diag: null, chart: null,
+              pattern: '', overrides: {} };
+
+/* ------------------------------------------- EA名の手動指定（マジック単位）
+   自動判定はどこまで行っても推測なので、最後は手で決められるようにする。
+   キーはマジック番号。抽出スクリプト経由なら正確に取れており、
+   コメントのパターン単位より対象が少なくて済む。
+   localStorage は file:// で使えない環境があるため必ず try/catch し、
+   保存できない場合はJSON書き出しを案内する。 */
+var MAP_KEY = 'mt_trade_analyzer_ea_map_v1';
+
+function setMapStatus(msg) {
+  var el = document.getElementById('mapStatus');
+  if (el) el.textContent = msg || '';
+}
+
+function loadOverrides() {
+  try {
+    var raw = localStorage.getItem(MAP_KEY);
+    var obj = raw ? JSON.parse(raw) : {};
+    return (obj && typeof obj === 'object' && !Array.isArray(obj)) ? obj : {};
+  } catch (e) {
+    return {};
+  }
+}
+
+function saveOverrides() {
+  var n = Object.keys(state.overrides).length;
+  try {
+    localStorage.setItem(MAP_KEY, JSON.stringify(state.overrides));
+    setMapStatus('保存しました（' + n + ' 件）');
+  } catch (e) {
+    setMapStatus('このブラウザでは自動保存できませんでした。JSONで書き出してください。');
+  }
+}
+
+function applyOverrides(trades) {
+  for (var i = 0; i < trades.length; i++) {
+    var t = trades[i];
+    var ov = state.overrides[t.magic];
+    if (ov) {
+      t.eaAuto = t.ea;      /* 自動判定の結果は対応表に表示するため残す */
+      t.ea = ov;
+    } else if (t.eaAuto !== undefined) {
+      delete t.eaAuto;
+    }
+  }
+}
+
+/* ---------------------------------------------------------- ファイル読み込み */
+var drop = document.getElementById('drop');
+document.getElementById('fileInput').addEventListener('change', function (e) {
+  if (e.target.files.length) loadFiles(Array.from(e.target.files));
+  e.target.value = '';   /* 同じファイルを選び直せるようにする */
+});
+['dragenter','dragover'].forEach(function (ev) {
+  drop.addEventListener(ev, function (e) { e.preventDefault(); drop.classList.add('over'); });
+});
+['dragleave','drop'].forEach(function (ev) {
+  drop.addEventListener(ev, function (e) { e.preventDefault(); drop.classList.remove('over'); });
+});
+drop.addEventListener('drop', function (e) {
+  if (e.dataTransfer.files.length) loadFiles(Array.from(e.dataTransfer.files));
+});
+
+/* MT4/MT5 のレポートは Shift_JIS や windows-1251/1252 も普通にあるため自動判定 */
+async function readSmart(file) {
+  var buf = await file.arrayBuffer();
+  var head = new TextDecoder('windows-1252').decode(buf.slice(0, 8192));
+  var m = head.match(/charset\s*=\s*["']?\s*([\w-]+)/i);
+  var order = [];
+  if (m) order.push(m[1].toLowerCase());
+  order.push('utf-8', 'shift_jis', 'windows-1252', 'windows-1251');
+  for (var i = 0; i < order.length; i++) {
+    var txt;
+    try { txt = new TextDecoder(order[i]).decode(buf); } catch (err) { continue; }
+    var bad = (txt.match(RE_BAD) || []).length;
+    if (bad / Math.max(1, txt.length) < 0.0002) return { text: txt, encoding: order[i] };
+  }
+  return { text: new TextDecoder('utf-8').decode(buf),
+           encoding: 'utf-8 (fallback / 文字化けの可能性あり)' };
+}
+
+/* ファイル名から口座番号らしきものを拾ってソース名にする。
+   ExportHistoryTSV は history_<口座番号>_<日付>.tsv で出力する。 */
+function sourceLabel(fileName) {
+  var m = fileName.match(/(?:history|statement)[_-]?(\d{4,12})/i);
+  return m ? m[1] : fileName.replace(/\.[^.]+$/, '');
+}
+
+async function loadFiles(files) {
+  for (var i = 0; i < files.length; i++) {
+    var file = files[i];
+    var r = await readSmart(file);
+    var plain = /\.(csv|tsv|txt)$/i.test(file.name) && !/<table/i.test(r.text);
+    var res = plain ? parseDelimited(r.text) : parseReport(r.text);
+    res.diag.fileName = file.name;
+    res.diag.encoding = r.encoding;
+
+    var label = sourceLabel(file.name);
+    for (var k = 0; k < res.trades.length; k++) {
+      res.trades[k].source = label;
+      /* 口座が違えばチケット番号は衝突しうるのでソース名を混ぜる */
+      res.trades[k].key = label + ':' + res.trades[k].key;
+    }
+    /* 同じファイルを二重に読み込んだら差し替える */
+    var existing = -1;
+    for (var j = 0; j < state.sources.length; j++) {
+      if (state.sources[j].fileName === file.name) { existing = j; break; }
+    }
+    var entry = { fileName: file.name, label: label,
+                  encoding: r.encoding, diag: res.diag, trades: res.trades };
+    if (existing >= 0) state.sources[existing] = entry;
+    else state.sources.push(entry);
+  }
+  rebuildFromSources();
+}
+
+/* 全ソースを結合し直して判定と描画をやり直す。
+   EA名の統合は結合後の全件で行う（口座をまたいで同じEAをまとめるため）。 */
+function rebuildFromSources() {
+  var all = [];
+  state.sources.forEach(function (s) { all = all.concat(s.trades); });
+  all.sort(function (a, b) { return a.time.localeCompare(b.time); });
+  state.trades = all;
+  state.diag = state.sources.length ? state.sources[0].diag : null;
+
+  consolidateEaByMagic(state.trades, state.diag);
+  /* ソースごとの取得率も統合後の値に更新する */
+  state.sources.forEach(function (s) { countEaOk(s.trades, s.diag); });
+
+  renderSources();
+  populateFilters();
+  populatePeriodOptions();
+  /* ファイルを足すとデータ範囲が変わるので、プリセット選択中は範囲を引き直す */
+  applyPreset(document.getElementById('periodPreset').value);
+  renderPeriodHint();
+  renderBanner();
+  renderDiag();
+  renderMapTable();
+  render();
+}
+
+function renderSources() {
+  var el = document.getElementById('sources');
+  if (!state.sources.length) { el.innerHTML = ''; return; }
+  var rows = state.sources.map(function (s, i) {
+    var closed = 0;
+    s.trades.forEach(function (t) { if (t.closed) closed++; });
+    return '<tr><td>' + esc(s.label) + '</td><td>' + esc(s.fileName) + '</td>'
+      + '<td>' + esc(s.encoding) + '</td>'
+      + '<td class="num">' + closed + '</td>'
+      + '<td class="num">' + (s.trades.length - closed) + '</td>'
+      + '<td><button data-src="' + i + '">外す</button></td></tr>';
+  }).join('');
+  el.innerHTML = '<div class="scroll" style="max-height:200px"><table id="srcTable">'
+    + '<thead><tr><th>ソース</th><th>ファイル</th><th>文字コード</th>'
+    + '<th class="num">決済</th><th class="num">未決済</th><th></th></tr></thead>'
+    + '<tbody>' + rows + '</tbody></table></div>';
+}
+
+document.getElementById('sources').addEventListener('click', function (e) {
+  var el = e.target;
+  if (!el || !el.dataset || el.dataset.src === undefined) return;
+  state.sources.splice(Number(el.dataset.src), 1);
+  if (!state.sources.length) {
+    state.trades = [];
+    state.diag = null;
+  }
+  rebuildFromSources();
+});
+
+/* ------------------------------------------------------------- HTML パーサ */
+function rowCells(tr) {
+  var cs = Array.prototype.slice.call(tr.children).filter(function (c) {
+    return /^(td|th)$/i.test(c.tagName);
+  });
+  if (!cs.length) cs = Array.prototype.slice.call(tr.querySelectorAll('td,th'));
+  return cs.map(function (c) {
+    return {
+      text: c.textContent.replace(RE_SPACE, ' ').replace(/\s+/g, ' ').trim(),
+      title: (c.getAttribute('title') || '').trim(),
+      span: parseInt(c.getAttribute('colspan') || '1', 10) || 1
+    };
+  });
+}
+
+function findCol(texts, cands) {
+  var i, j;
+  for (i = 0; i < cands.length; i++)
+    for (j = 0; j < texts.length; j++)
+      if (texts[j] === cands[i]) return j;
+  for (i = 0; i < cands.length; i++)
+    for (j = 0; j < texts.length; j++)
+      if (texts[j].indexOf(cands[i]) >= 0) return j;
+  return -1;
+}
+
+function isNum(t) { return !!t && RE_NUM.test(t) && /\d/.test(t); }
+
+function parseNum(s) {
+  if (s == null) return NaN;
+  var t = String(s).replace(/[\s ]/g, '');
+  if (!t) return NaN;
+  var lc = t.lastIndexOf(','), ld = t.lastIndexOf('.');
+  if (lc > -1 && ld > -1) {
+    t = (lc > ld) ? t.replace(/\./g, '').replace(',', '.') : t.replace(/,/g, '');
+  } else if (lc > -1) {
+    t = /,\d{3}$/.test(t) ? t.replace(/,/g, '') : t.replace(',', '.');
+  }
+  var m = t.match(/[-+]?\d*\.?\d+/);
+  return m ? parseFloat(m[0]) : NaN;
+}
+
+function normTime(t) { return (t || '').replace(/[.\/]/g, '-').replace(/T/, ' ').trim(); }
+
+/* ------------------------------------------------------------- pips換算
+   価格の小数桁からpipの大きさを決める。MTの慣習に合わせ、
+   3桁/5桁表示の銘柄は最後の1桁がpipsではなくpointなので1桁繰り上げる。
+     USDJPY 135.829 (3桁) -> pip 0.01
+     EURUSD 1.03000 (5桁) -> pip 0.0001
+     XAUUSD 1823.89 (2桁) -> pip 0.01
+   口座通貨に依存しないので、通貨の違う口座を混ぜて見るときに使える。 */
+function decimalsOf(s) {
+  var m = String(s == null ? '' : s).match(/\.(\d+)/);
+  return m ? m[1].length : 0;
+}
+
+function pipSizeFor(openStr, closeStr) {
+  var d = Math.max(decimalsOf(openStr), decimalsOf(closeStr));
+  if (d === 0) return 1;
+  if (d === 3 || d === 5) return Math.pow(10, -(d - 1));
+  return Math.pow(10, -d);
+}
+
+function calcPips(type, openStr, closeStr) {
+  var o = parseNum(openStr), c = parseNum(closeStr);
+  if (!isFinite(o) || !isFinite(c) || o === 0 || c === 0) return null;
+  var dir = /^buy/.test(String(type || '').toLowerCase()) ? 1 : -1;
+  var pips = dir * (c - o) / pipSizeFor(openStr, closeStr);
+  return Math.round(pips * 10) / 10;
+}
+
+/* 行内の type セルの実位置を探し、ヘッダー基準とのズレを返す。
+   MT4/MT5 レポートは行によってセル数が変わるため、これが無いと列が丸ごとずれる */
+function detectShift(cells, col) {
+  if (col.type < 0) return 0;
+  for (var i = 0; i < cells.length; i++) {
+    if (TYPE_SET.has(cells[i].text.toLowerCase())) {
+      var s = i - col.type;
+      return (s >= -4 && s <= 6) ? s : 0;
+    }
+  }
+  return 0;
+}
+
+/* コメントセルを行末から内容で探す。ヘッダーに列名が無い MT4 対策の本体 */
+function findCommentIndex(cells, minIdx, exclude) {
+  for (var i = cells.length - 1; i > minIdx; i--) {
+    var t = cells[i].text;
+    if (!t) continue;
+    if (exclude.has(i)) continue;
+    if (RE_DT.test(t)) continue;
+    if (isNum(t)) continue;
+    if (TYPE_SET.has(t.toLowerCase())) continue;
+    if (RE_WORD.test(t)) return i;
+    if (/^#?\d{3,12}$/.test(t)) return i;   /* コメントがマジック数字のみの EA もある */
+  }
+  return -1;
+}
+
+function newDiag() {
+  return {
+    fileName: '', encoding: '', tableCount: 0, rowCount: 0,
+    headers: [], samples: [], shifts: {}, commentIdx: {},
+    counts: { data: 0, closed: 0, open: 0, balance: 0,
+              noProfit: 0, emptyComment: 0, magicOk: 0, eaOk: 0 },
+    warnings: [], headerLen: 0
+  };
+}
+
+function parseReport(html) {
+  var doc = new DOMParser().parseFromString(html, 'text/html');
+  var rows = Array.prototype.slice.call(doc.querySelectorAll('tr'));
+  var diag = newDiag();
+  diag.tableCount = doc.querySelectorAll('table').length;
+  diag.rowCount = rows.length;
+
+  var trades = [], seen = new Set();
+  var col = null, headerLen = 0, headerNo = 0, hasCloseTime = false, hasCommentCol = false;
+
+  for (var r = 0; r < rows.length; r++) {
+    var cells = rowCells(rows[r]);
+    if (cells.length < 4) continue;
+    var texts = cells.map(function (c) { return c.text.toLowerCase(); });
+
+    /* --- ヘッダー行検出（セクションごとに列構成が変わるので毎回更新） --- */
+    var hasProfit = texts.some(function (t) { return t.indexOf('profit') >= 0; });
+    var hasId = texts.some(function (t) {
+      return ['ticket','order','deal','position','#'].some(function (k) {
+        return t === k || t.indexOf(k) >= 0;
+      });
+    });
+    if (cells.length >= 6 && hasProfit && hasId && !texts.some(isNum)) {
+      col = {
+        ticket:    findCol(texts, ['ticket','deal','position','order','#']),
+        openTime:  findCol(texts, ['open time','time']),
+        type:      findCol(texts, ['type']),
+        symbol:    findCol(texts, ['item','symbol']),
+        closeTime: findCol(texts, ['close time']),
+        profit:    findCol(texts, ['profit']),
+        comment:   findCol(texts, ['comment','remark'])
+      };
+      /* MT4/MT5のレポートは "Price" 列が建値と決済値で2つある。
+         findCol は最初の1つしか返さないので、ここで両端を拾う。 */
+      var priceCols = [];
+      texts.forEach(function (t2, i2) { if (t2 === 'price') priceCols.push(i2); });
+      col.openPrice = priceCols.length ? priceCols[0] : -1;
+      col.closePrice = priceCols.length > 1 ? priceCols[priceCols.length - 1] : -1;
+      headerLen = cells.length;
+      headerNo++;
+      hasCloseTime = col.closeTime >= 0;
+      hasCommentCol = col.comment >= 0;
+      diag.headers.push({
+        no: headerNo, row: r, len: headerLen,
+        cells: cells.map(function (c, i) { return '[' + i + '] ' + c.text; }),
+        map: Object.assign({}, col)
+      });
+      continue;
+    }
+    if (!col || col.profit < 0) continue;
+
+    /* --- データ行 --- */
+    var shift = detectShift(cells, col);
+    diag.shifts[shift] = (diag.shifts[shift] || 0) + 1;
+
+    var pick = function (k) {
+      return (col[k] >= 0 && cells[col[k] + shift]) ? cells[col[k] + shift].text : '';
+    };
+
+    var type = pick('type').toLowerCase();
+    if (!TYPE_SET.has(type)) continue;                  /* 合計行・見出し行などを除外 */
+    if (BALANCE_TYPES.has(type)) { diag.counts.balance++; continue; }
+
+    var iProfit = col.profit + shift;
+    var profit = parseNum(cells[iProfit] ? cells[iProfit].text : '');
+    if (!isFinite(profit)) { diag.counts.noProfit++; continue; }
+
+    var dts = [];
+    cells.forEach(function (c, i) { if (RE_DT.test(c.text)) dts.push(i); });
+    var closed = hasCloseTime || dts.length >= 2;
+
+    /* コメント位置: ヘッダーに Comment 列があればそれを使い、
+       無ければ Profit より右側を行末から内容ベースで探す */
+    var iComment = -1;
+    if (hasCommentCol && cells[col.comment + shift]) iComment = col.comment + shift;
+    if (iComment < 0 || !cells[iComment].text) {
+      var exclude = new Set([col.symbol + shift, col.type + shift, iProfit]);
+      iComment = findCommentIndex(cells, iProfit - 1, exclude);
+    }
+    var raw = iComment >= 0 ? cells[iComment].text : '';
+    if (!raw) {                      /* 最後の手段: title 属性に入れるビルドがある */
+      var titles = cells.map(function (c) { return c.title; }).filter(Boolean);
+      if (titles.length) raw = titles[titles.length - 1];
+    }
+    if (iComment >= 0) diag.commentIdx[iComment] = (diag.commentIdx[iComment] || 0) + 1;
+    if (!raw) diag.counts.emptyComment++;
+
+    var cc = cleanComment(raw);
+    var magic = extractMagic(cc.clean, raw);
+    var symbol = pick('symbol') || '';
+    var ea = extractEA(cc.clean, magic, symbol);
+    var ticket = pick('ticket');
+
+    if (ticket && seen.has(ticket)) continue;
+    if (ticket) seen.add(ticket);
+
+    if (magic !== '0') diag.counts.magicOk++;
+    if (ea !== UNKNOWN_EA) diag.counts.eaOk++;
+    diag.counts.data++;
+    if (closed) diag.counts.closed++; else diag.counts.open++;
+
+    var time = normTime(dts.length >= 2 ? cells[dts[dts.length - 1]].text
+      : (pick('closeTime') || pick('openTime') || (dts.length ? cells[dts[0]].text : '')));
+    /* エントリー日時。行内の最初の日時セルが建玉時刻。
+       日時が1つしかない行（未決済など）は決済側と同じ値になるため空にする。 */
+    var openTime = normTime(pick('openTime')
+      || (dts.length >= 2 ? cells[dts[0]].text : ''));
+
+    trades.push({
+      key: ticket || String(r), ticket: ticket, type: type, symbol: symbol,
+      magic: magic, ea: ea, profit: profit, raw: raw, flags: cc.flags,
+      closed: closed, time: time, openTime: openTime,
+      pips: closed ? calcPips(type, pick('openPrice'), pick('closePrice')) : null
+    });
+
+    if (diag.samples.length < 6) {
+      diag.samples.push({
+        row: r, len: cells.length, shift: shift, iProfit: iProfit, iComment: iComment,
+        cells: cells.map(function (c, i) {
+          return '[' + i + '] ' + c.text + (c.title ? ' (title=' + c.title + ')' : '');
+        }),
+        resolved: { type: type, symbol: symbol, profit: profit, raw: raw,
+                    magic: magic, ea: ea, closed: closed }
+      });
+    }
+  }
+
+  diag.headerLen = headerLen;
+  buildWarnings(diag);
+  trades.sort(function (a, b) { return a.time.localeCompare(b.time); });
+  return { trades: trades, diag: diag };
+}
+
+/* --------------------------------------------------------- CSV / TSV パーサ */
+function parseDelimited(text) {
+  var diag = newDiag();
+  var lines = text.split(/\r?\n/).filter(function (l) { return l.trim(); });
+  if (!lines.length) { buildWarnings(diag); return { trades: [], diag: diag }; }
+
+  var tabs = (lines[0].match(/\t/g) || []).length;
+  var commas = (lines[0].match(/,/g) || []).length;
+  var delim = tabs >= commas ? '\t' : ',';
+  var split = function (l) {
+    return l.split(delim).map(function (s) { return s.replace(/^"|"$/g, '').trim(); });
+  };
+  var head = split(lines[0]).map(function (s) { return s.toLowerCase(); });
+  var idx = {
+    ticket:     findCol(head, ['ticket','position','order','deal']),
+    time:       findCol(head, ['close time','closetime','time','date']),
+    openTime:   findCol(head, ['open time','opentime']),
+    openPrice:  findCol(head, ['open price','openprice']),
+    closePrice: findCol(head, ['close price','closeprice']),
+    symbol:   findCol(head, ['symbol','item']),
+    type:     findCol(head, ['type','cmd']),
+    magic:    findCol(head, ['magic','magicnumber','magic number']),
+    profit:   findCol(head, ['profit','netprofit','pl']),
+    comment:  findCol(head, ['comment','remark']),
+    ea:       findCol(head, ['ea','ea name','expert','name'])
+  };
+  diag.rowCount = lines.length;
+  diag.headerLen = head.length;
+  diag.headers.push({
+    no: 1, row: 0, len: head.length,
+    cells: head.map(function (h, i) { return '[' + i + '] ' + h; }),
+    map: Object.assign({}, idx)
+  });
+
+  var trades = [];
+  for (var i = 1; i < lines.length; i++) {
+    var c = split(lines[i]);
+    var profit = parseNum(idx.profit >= 0 ? c[idx.profit] : '');
+    if (!isFinite(profit)) { diag.counts.noProfit++; continue; }
+    var raw = idx.comment >= 0 ? (c[idx.comment] || '') : '';
+    var cc = cleanComment(raw);
+    var symbol = idx.symbol >= 0 ? (c[idx.symbol] || '') : '';
+    var magic = (idx.magic >= 0 && /\d/.test(c[idx.magic] || ''))
+      ? String(parseInt(c[idx.magic], 10)) : extractMagic(cc.clean, raw);
+    var ea = (idx.ea >= 0 && c[idx.ea]) ? c[idx.ea] : extractEA(cc.clean, magic, symbol);
+    if (!raw) diag.counts.emptyComment++;
+    if (magic !== '0') diag.counts.magicOk++;
+    if (ea !== UNKNOWN_EA) diag.counts.eaOk++;
+    diag.counts.data++;
+
+    /* close time が空の行は未決済として扱う。
+       ExportHistoryTSV を InpIncludeOpen=true で出力すると未決済が混ざるため、
+       これを closed 扱いにするとエクイティカーブと純損益が黙って狂う。
+       close time 列そのものが無いCSVでは判定できないので closed とみなす。 */
+    var closeStr = idx.time >= 0 ? String(c[idx.time] || '').trim() : '';
+    var openStr = idx.openTime >= 0 ? String(c[idx.openTime] || '').trim() : '';
+    var isClosed = (idx.time < 0) ? true : (closeStr !== '');
+    if (isClosed) diag.counts.closed++; else diag.counts.open++;
+
+    trades.push({
+      key: 'c' + i,
+      ticket: idx.ticket >= 0 ? (c[idx.ticket] || '') : '',
+      type: (idx.type >= 0 ? c[idx.type] : '') || '',
+      symbol: symbol, magic: magic, ea: ea, profit: profit, raw: raw, flags: cc.flags,
+      closed: isClosed, time: normTime(closeStr || openStr),
+      openTime: normTime(openStr),
+      pips: isClosed ? calcPips(
+        (idx.type >= 0 ? c[idx.type] : ''),
+        idx.openPrice >= 0 ? c[idx.openPrice] : '',
+        idx.closePrice >= 0 ? c[idx.closePrice] : '') : null
+    });
+
+    if (diag.samples.length < 6) {
+      diag.samples.push({
+        row: i, len: c.length, shift: 0, iProfit: idx.profit, iComment: idx.comment,
+        cells: c.map(function (v, n) { return '[' + n + '] ' + v; }),
+        resolved: { type: (idx.type >= 0 ? c[idx.type] : '') || '', symbol: symbol,
+                    profit: profit, raw: raw, magic: magic, ea: ea, closed: isClosed }
+      });
+    }
+  }
+  buildWarnings(diag);
+  trades.sort(function (a, b) { return a.time.localeCompare(b.time); });
+  return { trades: trades, diag: diag };
+}
+
+/* ---------------------------------------------------- コメント -> マジック/EA */
+function cleanComment(raw) {
+  var c = (raw || '').trim();
+  var flags = [];
+  /* MT4は "[sl]"、MT5の決済コメントは "[sl 1823.04]" のように価格が入る */
+  c = c.replace(/\[(sl|tp|pc|so|tsl)\b[^\]]*\]/gi, function (m0, g1) {
+    flags.push(g1.toLowerCase()); return ' ';
+  });
+  c = c.replace(/\bso:\s*\d+(\.\d+)?%?/gi, function () { flags.push('so'); return ' '; });
+  c = c.replace(/\b(from|to)\s*#?\d+/gi, ' ');
+  c = c.replace(/\bcancelled\b/gi, function () { flags.push('cancelled'); return ' '; });
+  return { clean: c.replace(/\s+/g, ' ').trim(), flags: flags };
+}
+
+function extractMagic(clean, raw) {
+  var src = clean || raw || '';
+  if (!src) return '0';
+  if (state.pattern) {
+    try {
+      var mp = src.match(new RegExp(state.pattern));
+      if (mp) return String(mp[1] != null ? mp[1] : mp[0]);
+    } catch (err) { /* 不正な正規表現は自動判定へフォールバック */ }
+  }
+  var m = src.match(/magic\s*(?:number)?\s*[:=#]?\s*(\d{1,12})/i);
+  if (m) return m[1];
+  m = src.match(/^#?(\d{3,12})\b/);
+  if (m) return m[1];
+  m = src.match(/[#\[](\d{3,12})[\]\s]/);
+  if (m) return m[1];
+  m = src.match(/\b(\d{4,12})\b/);
+  if (m) return m[1];
+  m = src.match(/(\d{3,12})\s*$/);
+  if (m) return m[1];
+  return '0';
+}
+
+/* ------------------------------------------------- EA名のトークン分解
+   MT5のコメントは EA名 に連番やUNIX時刻が _ : , # で直結していることが多い。
+     21737:PEACE_0 / The_HAND:high_1677166200 / BlueScalper,173309,S
+   空白区切りだけでは切り出せないので、これらの記号も区切りとして扱う。
+   元の区切り文字は保持して復元できるようにする。 */
+var RE_NAME_TOKEN = /[^\s_:,;|\/\-#@\[\]()]+/g;
+
+function nameTokens(s) {
+  var out = [], m, last = 0;
+  RE_NAME_TOKEN.lastIndex = 0;
+  while ((m = RE_NAME_TOKEN.exec(s)) !== null) {
+    out.push({ sep: s.slice(last, m.index), tok: m[0] });
+    last = m.index + m[0].length;
+  }
+  return out;
+}
+
+function joinTokens(parts) {
+  var s = '';
+  for (var i = 0; i < parts.length; i++) {
+    s += (i === 0 ? '' : parts[i].sep) + parts[i].tok;   /* 先頭の区切りは捨てる */
+  }
+  return s;
+}
+
+/* 取引ごとに変わる数値トークン（連番・UNIX時刻・チケット番号）を落とす。
+   英数字が混ざったトークン（v1.2, M5, MT5, WandamAce2）は名前の一部なので残す。 */
+function stripNumericTokens(s) {
+  return joinTokens(nameTokens(s).filter(function (p) {
+    return !/^\d+([.,]\d+)?$/.test(p.tok);
+  }));
+}
+
+/* 正規表現の特殊文字を退避（英数字と _ 以外を素朴にエスケープ） */
+function reEscape(str) {
+  var out = '', s = String(str);
+  for (var i = 0; i < s.length; i++) {
+    out += /[A-Za-z0-9_]/.test(s[i]) ? s[i] : '\\' + s[i];
+  }
+  return out;
+}
+
+function extractEA(clean, magic, symbol) {
+  var s = clean || '';
+  if (!s) return UNKNOWN_EA;
+  if (magic && magic !== '0') s = s.replace(new RegExp('#?\\b' + magic + '\\b'), ' ');
+  s = s.replace(/\bmagic\s*(number)?\s*[:=#]?/ig, ' ');
+  if (symbol) s = s.replace(new RegExp(reEscape(symbol), 'ig'), ' ');
+  s = s.replace(/\b([A-Za-z]{3})[\/_.\-]([A-Za-z]{3})\b[a-z0-9.\-_]{0,4}/g, ' ');
+  /* 単独の小数（145.612 など）はその時のレートやロットなのでEA名から外す。
+     これを残すと同じEAが「PriceGrid 145.612」「PriceGrid 146.208」に分裂する。
+     整数は買い/売りで別マジックを振るEAがあるため除去しない。 */
+  s = s.replace(/(^|\s)\d+[.,]\d+(?=\s|$)/g, ' ');
+  s = s.replace(/(^|\s)\d{1,2}:\d{2}(:\d{2})?(?=\s|$)/g, ' ');
+  /* 21737:PEACE_0 -> PEACE、The_HAND:high_1677166200 -> The_HAND:high など、
+     区切り記号で名前に直結した数値を落とす */
+  s = stripNumericTokens(s);
+  s = s.replace(/^[\s\-_|,;:#]+/, '').replace(/[\s\-_|,;:#]+$/, '').replace(/\s+/g, ' ').trim();
+  return s || UNKNOWN_EA;
+}
+
+/* --------------------------------------- EA名をマジック単位でまとめ直す
+   MT5では同じEAでもコメントに連番やバージョンが付いて
+   「GridMaster 12」「GridMaster 47」のように分裂することがある。
+   マジックが正確に取れている（TSV経路）なら、同じマジックは同じEAなので、
+   そのグループ内のEA名の共通する先頭部分をラベルにして統合できる。
+   共通部分が無い場合は最頻値を採用する。 */
+/* グループ内の全名前に共通して現れるトークンだけを残したラベルを作る。
+   先頭一致ではなくトークンの有無で判定するので、
+   変動部分が先頭にあっても末尾にあっても落とせる。
+     Million Dollar MT5 / Million Dollar Gold -> Million Dollar
+   共通トークンが1つも無い場合は空文字を返す。
+   （同じマジックに別名のEAが同居しているケース。無理に片方へ寄せない） */
+function commonTokenLabel(names) {
+  if (!names.length) return '';
+  var first = nameTokens(names[0]);
+  var others = [];
+  for (var i = 1; i < names.length; i++) {
+    var set = {};
+    nameTokens(names[i]).forEach(function (p) { set[p.tok] = true; });
+    others.push(set);
+  }
+  var keep = first.filter(function (p) {
+    for (var j = 0; j < others.length; j++) {
+      if (!others[j][p.tok]) return false;
+    }
+    return true;
+  });
+  return joinTokens(keep);
+}
+
+function consolidateEaByMagic(trades, diag) {
+  /* 何度呼ばれても同じ結果になるよう、毎回「統合前のEA名」から作り直す。
+     チェックボックスでオフにしたときもこの基準値に戻せる。 */
+  for (var b = 0; b < trades.length; b++) {
+    if (trades[b].eaBase === undefined) trades[b].eaBase = trades[b].ea;
+    trades[b].ea = trades[b].eaBase;
+    delete trades[b].eaRaw;
+  }
+  var enabled = document.getElementById('autoMerge').checked;
+  if (!enabled) {
+    applyOverrides(trades);      /* 自動統合を切っても手動指定は効かせる */
+    countEaOk(trades, diag);
+    return;
+  }
+
+  var byMagic = {};
+  for (var i = 0; i < trades.length; i++) {
+    var t = trades[i];
+    if (!t.magic || t.magic === '0') continue;
+    if (!byMagic[t.magic]) byMagic[t.magic] = [];
+    byMagic[t.magic].push(t);
+  }
+  var merged = 0;
+
+  Object.keys(byMagic).forEach(function (m) {
+    var rows = byMagic[m];
+    var names = [];
+    for (var i = 0; i < rows.length; i++) {
+      if (rows[i].ea && rows[i].ea !== UNKNOWN_EA) names.push(rows[i].ea);
+    }
+    if (!names.length) return;
+
+    var label = commonTokenLabel(names);
+    /* 共通トークンが無い＝同じマジックに別名のEAが同居している。
+       片方へ寄せると片方が消えるので、この場合は何もしない。 */
+    if (!label) return;
+
+    for (var j = 0; j < rows.length; j++) {
+      if (rows[j].ea !== label) {
+        rows[j].eaRaw = rows[j].ea;   /* 元の表記は残しておく */
+        rows[j].ea = label;
+        merged++;
+      }
+    }
+  });
+  /* 手動指定は自動判定より優先する（最後に上書き） */
+  applyOverrides(trades);
+
+  if (!diag) return;
+  if (merged) {
+    diag.warnings.push('同じマジックのEA名の表記ゆれ ' + merged
+      + ' 件を共通部分でまとめました（元の表記はComment列で確認できます）。');
+  }
+  var ovN = Object.keys(state.overrides).length;
+  if (ovN) {
+    diag.warnings.push('EA名の手動指定を ' + ovN + ' マジックに適用しました。');
+  }
+  countEaOk(trades, diag);
+}
+
+/* コメントが空でもマジックや手動指定からEA名が付く行があるので数え直す */
+function countEaOk(trades, diag) {
+  if (!diag) return;
+  var ok = 0;
+  for (var k = 0; k < trades.length; k++) {
+    if (trades[k].ea !== UNKNOWN_EA) ok++;
+  }
+  diag.counts.eaOk = ok;
+}
+
+/* ------------------------------------------------------------------ 診断 */
+function buildWarnings(diag) {
+  var c = diag.counts, w = diag.warnings;
+  if (!diag.headers.length)
+    w.push('ヘッダー行を検出できませんでした（Profit と Ticket/Order/Deal を含む行が見つからない）。');
+  if (!c.data)
+    w.push('データ行を1件も抽出できませんでした。');
+  if (c.data && c.emptyComment === c.data)
+    w.push('全行でコメントセルが空です。Profit より右にセルが存在しない可能性があります（下の生セル内容を確認してください）。');
+  if (c.data && c.magicOk === 0 && c.emptyComment < c.data)
+    w.push('コメントは取れていますが、マジックとして解釈できる数字がありません。「マジック抽出パターン」に正規表現を指定してください。');
+  if (c.data && c.magicOk > 0 && c.magicOk < c.data * 0.5)
+    w.push('マジックが取れた行が ' + c.magicOk + '/' + c.data + ' 件です。手動取引が混在しているか、パターンが一部に合っていません。');
+  var shifts = Object.keys(diag.shifts).filter(function (s) { return s !== '0'; });
+  if (shifts.length) {
+    var detail = shifts.map(function (s) {
+      return 'shift ' + s + ': ' + diag.shifts[s] + ' 行';
+    }).join(', ');
+    w.push('ヘッダーとデータ行で列位置のズレを検出し、行ごとに補正しました（' + detail + '）。');
+  }
+}
+
+function renderBanner() {
+  var b = document.getElementById('banner');
+  if (!state.sources.length) { b.innerHTML = ''; return; }
+
+  /* 複数ソースを合算した数字を出す */
+  var tot = { data: 0, closed: 0, open: 0, balance: 0, magicOk: 0, eaOk: 0 };
+  state.sources.forEach(function (s) {
+    var c = s.diag.counts;
+    tot.data += c.data; tot.closed += c.closed; tot.open += c.open;
+    tot.balance += c.balance; tot.magicOk += c.magicOk; tot.eaOk += c.eaOk;
+  });
+  var rate = tot.data ? Math.round(tot.magicOk / tot.data * 100) : 0;
+  var kind = rate >= 80 ? 'ok' : (rate > 0 ? 'info' : 'warn');
+  var head = state.sources.length === 1
+    ? '<b>' + esc(state.sources[0].fileName) + '</b>（' + esc(state.sources[0].encoding) + '）'
+    : '<b>' + state.sources.length + ' ファイル</b>を合算';
+
+  var html = '<div class="banner ' + kind + '">'
+    + head + ' / 決済 ' + tot.closed + ' 件 ・ 未決済 ' + tot.open
+    + ' 件 ・ 入出金 ' + tot.balance + ' 件<br>'
+    + 'マジック取得 <b>' + tot.magicOk + ' / ' + tot.data + '</b>（' + rate + '%）'
+    + ' ・ EA名取得 <b>' + tot.eaOk + ' / ' + tot.data + '</b>'
+    + '</div>';
+
+  if (state.sources.length > 1) {
+    html += '<div class="banner info">複数口座を合算しています。'
+      + '口座通貨が違う場合、金額の合計には意味がありません。'
+      + '表示単位を pips にするか、ソースで絞り込んでください。</div>';
+  }
+  if (state.diag && state.diag.warnings.length) {
+    html += '<div class="banner warn">' + state.diag.warnings.map(function (w) {
+      return '・' + esc(w);
+    }).join('<br>') + '</div>';
+  }
+  b.innerHTML = html;
+}
+
+function renderDiag() {
+  var d = state.diag;
+  if (!d) { document.getElementById('diag').textContent = 'ファイル未読込'; return; }
+  var L = [];
+  L.push('file       : ' + d.fileName);
+  L.push('encoding   : ' + d.encoding);
+  L.push('table / tr : ' + d.tableCount + ' tables / ' + d.rowCount + ' rows');
+  L.push('counts     : ' + JSON.stringify(d.counts));
+  L.push('shift dist : ' + JSON.stringify(d.shifts));
+  L.push('comment at : ' + JSON.stringify(d.commentIdx)
+    + '   <- 実際にコメントとして採用したセル位置');
+  d.headers.forEach(function (h) {
+    L.push('');
+    L.push('--- header #' + h.no + ' (tr index ' + h.row + ', ' + h.len + ' cells) ---');
+    L.push('  ' + h.cells.join(' | '));
+    L.push('  map: ' + JSON.stringify(h.map));
+  });
+  d.samples.forEach(function (s, i) {
+    L.push('');
+    L.push('--- data sample ' + (i + 1) + ' (tr index ' + s.row + ', ' + s.len
+      + ' cells, shift=' + s.shift + ', profit@' + s.iProfit
+      + ', comment@' + s.iComment + ') ---');
+    s.cells.forEach(function (c) { L.push('  ' + c); });
+    L.push('  => ' + JSON.stringify(s.resolved));
+  });
+  /* 集計のグループ分けが意図と合わないときはここを見る。
+     マジックごとに「採用したEA名」と「元のコメント由来の表記」を並べる。 */
+  var byMagic = {};
+  var byLabel = {};
+  state.trades.forEach(function (t) {
+    var m = t.magic || '0';
+    if (!byMagic[m]) byMagic[m] = { n: 0, labels: {}, variants: {} };
+    byMagic[m].n++;
+    /* 1つのマジックに複数のEA名が残ることがある（別名のEAが同居している場合）
+       ので、採用ラベルも集合として持つ */
+    byMagic[m].labels[t.ea] = (byMagic[m].labels[t.ea] || 0) + 1;
+    /* 自動判定の結果。手動指定がある行は eaAuto に退避されている */
+    var v = t.eaRaw || (t.eaAuto !== undefined ? t.eaAuto : t.ea);
+    byMagic[m].variants[v] = (byMagic[m].variants[v] || 0) + 1;
+    if (t.eaAuto !== undefined) byMagic[m].manual = true;
+
+    if (!byLabel[t.ea]) byLabel[t.ea] = {};
+    byLabel[t.ea][m] = (byLabel[t.ea][m] || 0) + 1;
+  });
+
+  var magics = Object.keys(byMagic).sort(function (a, b) {
+    return byMagic[b].n - byMagic[a].n;
+  });
+  if (magics.length) {
+    L.push('');
+    L.push('--- マジック -> EA名 (' + magics.length + ' 個) ---');
+    magics.forEach(function (m) {
+      var g = byMagic[m];
+      var vs = Object.keys(g.variants);
+      var lbs = Object.keys(g.labels).map(function (k) {
+        return '"' + k + '" x' + g.labels[k];
+      }).join(', ');
+      L.push('  magic ' + m + '  (' + g.n + '件)  => ' + lbs
+        + (g.manual ? '   [手動指定]' : ''));
+      vs.slice(0, 6).forEach(function (v) {
+        L.push('      自動判定: "' + v + '" x' + g.variants[v]);
+      });
+      if (vs.length > 6) L.push('      ... 他 ' + (vs.length - 6) + ' 種');
+    });
+  }
+
+  var labels = Object.keys(byLabel).sort();
+  if (labels.length) {
+    L.push('');
+    L.push('--- 集計「EA名」でのまとまり方 (' + labels.length + ' グループ) ---');
+    labels.forEach(function (lb) {
+      var ms = Object.keys(byLabel[lb]);
+      var tot = 0;
+      ms.forEach(function (m) { tot += byLabel[lb][m]; });
+      L.push('  "' + lb + '"  ' + tot + '件  magic: '
+        + ms.map(function (m) { return m + '(' + byLabel[lb][m] + ')'; }).join(', '));
+    });
+  }
+
+  if (d.warnings.length) {
+    L.push('');
+    L.push('--- warnings ---');
+    d.warnings.forEach(function (w) { L.push('  ! ' + w); });
+  }
+  document.getElementById('diag').textContent = L.join('\n');
+}
+
+document.getElementById('copyDiag').addEventListener('click', function () {
+  navigator.clipboard.writeText(document.getElementById('diag').textContent).then(
+    function () { alert('診断情報をコピーしました'); },
+    function () { alert('コピーできませんでした（手動で選択してください）'); }
+  );
+});
+
+/* -------------------------------------------------------------- フィルタ */
+var ESC_MAP = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' };
+function esc(s) {
+  return String(s == null ? '' : s).replace(/[&<>"']/g, function (m) { return ESC_MAP[m]; });
+}
+
+function fill(id, values) {
+  var el = document.getElementById(id), cur = el.value;
+  el.innerHTML = '<option value="all">すべて</option>' + values.map(function (v) {
+    return '<option value="' + esc(v) + '">' + esc(v) + '</option>';
+  }).join('');
+  var opts = Array.from(el.options);
+  if (opts.some(function (o) { return o.value === cur; })) el.value = cur;
+}
+
+/* Set / Iterator は array-like ではないので Array.from を使う
+   （Array.prototype.slice.call では空配列になる） */
+function uniq(arr) { return Array.from(new Set(arr)); }
+
+function populateFilters() {
+  var t = state.trades;
+  fill('sourceSelect', uniq(t.map(function (x) { return x.source || '-'; })).sort());
+  fill('eaSelect', uniq(t.map(function (x) { return x.ea; })).sort());
+  fill('magicSelect', uniq(t.map(function (x) { return x.magic; })).sort(function (a, b) {
+    return (Number(a) || 0) - (Number(b) || 0);
+  }));
+  fill('symbolSelect', uniq(t.map(function (x) { return x.symbol; }).filter(Boolean)).sort());
+}
+
+/* ------------------------------------------------------------ 期間フィルタ
+   基準日は「今日」ではなく「データの最終日」。
+   過去のアーカイブを読み込んだときに「直近3ヶ月」が常に0件になるのを避ける。
+   並び替えに使っている t.time（決済日時、未決済はエントリー日時）で絞る。 */
+function ymd(t) { return (t.time || '').slice(0, 10); }
+
+function dataRange() {
+  var min = '', max = '';
+  for (var i = 0; i < state.trades.length; i++) {
+    var d = ymd(state.trades[i]);
+    if (!d) continue;
+    if (!min || d < min) min = d;
+    if (!max || d > max) max = d;
+  }
+  return { min: min, max: max };
+}
+
+function fmtYmd(d) {
+  var mm = String(d.getMonth() + 1);
+  var dd = String(d.getDate());
+  return d.getFullYear() + '-' + (mm.length < 2 ? '0' + mm : mm)
+    + '-' + (dd.length < 2 ? '0' + dd : dd);
+}
+
+/* 月をずらす。1月31日の1ヶ月前が3月3日になる類のズレを避けて末日で丸める */
+function shiftMonths(s, n) {
+  var p = s.split('-');
+  var day = Number(p[2]);
+  var d = new Date(Number(p[0]), Number(p[1]) - 1 + n, 1);
+  var last = new Date(d.getFullYear(), d.getMonth() + 1, 0).getDate();
+  d.setDate(Math.min(day, last));
+  return fmtYmd(d);
+}
+
+function populatePeriodOptions() {
+  var el = document.getElementById('periodPreset');
+  var cur = el.value;
+  var r = dataRange();
+  var opts = ['<option value="all">全期間</option>'];
+  if (r.max) {
+    opts.push('<option value="m1">直近1ヶ月</option>');
+    opts.push('<option value="m3">直近3ヶ月</option>');
+    opts.push('<option value="m6">直近6ヶ月</option>');
+    opts.push('<option value="m12">直近12ヶ月</option>');
+    var years = uniq(state.trades.map(function (t) { return ymd(t).slice(0, 4); })
+      .filter(Boolean)).sort().reverse();
+    years.forEach(function (y) {
+      opts.push('<option value="y' + y + '">' + y + '年</option>');
+    });
+  }
+  opts.push('<option value="custom">期間指定（日付を直接入力）</option>');
+  el.innerHTML = opts.join('');
+  if (Array.from(el.options).some(function (o) { return o.value === cur; })) el.value = cur;
+}
+
+function applyPreset(v) {
+  var r = dataRange();
+  var from = '', to = '';
+  if (v === 'all' || !r.max) {
+    from = ''; to = '';
+  } else if (v.charAt(0) === 'm') {
+    to = r.max;
+    from = shiftMonths(r.max, -Number(v.slice(1)));
+    if (from < r.min) from = r.min;
+  } else if (v.charAt(0) === 'y') {
+    from = v.slice(1) + '-01-01';
+    to = v.slice(1) + '-12-31';
+  } else {
+    return;   /* custom は入力欄の値をそのまま使う */
+  }
+  document.getElementById('dateFrom').value = from;
+  document.getElementById('dateTo').value = to;
+}
+
+function renderPeriodHint() {
+  var r = dataRange();
+  var el = document.getElementById('periodHint');
+  if (!r.max) { el.textContent = ''; return; }
+  var from = document.getElementById('dateFrom').value;
+  var to = document.getElementById('dateTo').value;
+  el.textContent = '対象期間: ' + (from || r.min) + ' 〜 ' + (to || r.max)
+    + '　／　データ全体: ' + r.min + ' 〜 ' + r.max
+    + '（「直近◯ヶ月」はデータ最終日 ' + r.max + ' が基準です）';
+}
+
+function filtered() {
+  var from = document.getElementById('dateFrom').value;
+  var to = document.getElementById('dateTo').value;
+  var ea = document.getElementById('eaSelect').value;
+  var mg = document.getElementById('magicSelect').value;
+  var sy = document.getElementById('symbolSelect').value;
+  var sc = document.getElementById('sourceSelect').value;
+  var open = document.getElementById('inclOpen').checked;
+  return state.trades.filter(function (t) {
+    var d = ymd(t);
+    return (open || t.closed)
+      && (!from || (d && d >= from))
+      && (!to || (d && d <= to))
+      && (sc === 'all' || (t.source || '-') === sc)
+      && (ea === 'all' || t.ea === ea)
+      && (mg === 'all' || t.magic === mg)
+      && (sy === 'all' || t.symbol === sy);
+  });
+}
+
+/* ---------------------------------------------------------------- 集計 */
+/* key は 'profit'（口座通貨）か 'pips'。
+   pips は口座通貨に依存しないので、通貨の違う口座を混ぜたときはこちらを見る。
+   pipsが計算できない行（価格列が無い等）は 0 として扱わず件数から外す。 */
+function stats(trades, key) {
+  key = key || 'profit';
+  if (key === 'pips') {
+    trades = trades.filter(function (t) { return typeof t.pips === 'number'; });
+  }
+  if (!trades.length) return null;
+  var bal = 0, peak = 0, maxDD = 0, wins = 0, losses = 0, gp = 0, gl = 0;
+  var equity = [0];
+  /* エクイティカーブのX軸用。equity[0] は開始点なので最初の取引日を入れておく */
+  var dates = [ymd(trades[0])];
+  for (var i = 0; i < trades.length; i++) {
+    var p = (key === 'pips') ? trades[i].pips : trades[i].profit;
+    bal += p;
+    equity.push(bal);
+    dates.push(ymd(trades[i]));
+    if (bal > peak) peak = bal;
+    if (peak - bal > maxDD) maxDD = peak - bal;
+    if (p > 0) { wins++; gp += p; } else if (p < 0) { losses++; gl += -p; }
+  }
+  var dec = wins + losses;
+  return {
+    net: bal, maxDD: maxDD, winRate: dec ? wins / dec * 100 : 0,
+    pf: gl > 0 ? gp / gl : (gp > 0 ? Infinity : 0),
+    n: trades.length, avg: bal / trades.length, equity: equity, dates: dates
+  };
+}
+
+function fx(n) { return n.toFixed(2); }
+function cls(n) { return n >= 0 ? 'positive' : 'negative'; }
+function pfStr(v) { return v === Infinity ? 'inf' : v.toFixed(2); }
+function card(label, value, klass) {
+  return '<div class="stat-card"><div class="label">' + label + '</div>'
+    + '<div class="value' + (klass ? ' ' + klass : '') + '">' + value + '</div></div>';
+}
+
+/* 集計単位に応じたグループキー。
+   EA名で見ると買い/売りで別マジックのEAも1本にまとまり、
+   EA名+マジックにすると分かれる。 */
+function groupKeyOf(t, mode) {
+  if (mode === 'magic')     return t.magic === '0' ? '(マジックなし)' : t.magic;
+  if (mode === 'ea_magic')  return t.ea + '  @' + t.magic;
+  if (mode === 'ea_symbol') return t.ea + '  / ' + (t.symbol || '-');
+  return t.ea;
+}
+
+function render() {
+  var trades = filtered();
+  var unit = document.getElementById('unit').value;      /* 'profit' or 'pips' */
+  var isPips = unit === 'pips';
+  var s = stats(trades, unit);
+  var sMoney = stats(trades, 'profit');
+  document.getElementById('tradeCount').textContent = trades.length + ' 件';
+
+  var suffix = isPips ? ' pips' : '';
+  var fmt = isPips ? function (n) { return n.toFixed(1); } : fx;   /* pipsは小数1桁 */
+  var noPips = isPips && !s;
+  document.getElementById('stats').innerHTML = noPips
+    ? '<div class="stat-card">pipsを計算できる取引がありません（価格列が必要です）</div>'
+    : !s
+      ? '<div class="stat-card">データなし</div>'
+      : card(isPips ? '合計pips' : '純損益', fmt(s.net) + suffix, cls(s.net))
+        + card('最大DD', fmt(s.maxDD) + suffix, '')
+        + card('勝率', s.winRate.toFixed(1) + '%', '')
+        + card('PF', pfStr(s.pf), '')
+        + card('取引数', String(s.n), '')
+        + card(isPips ? '平均pips' : '平均損益', fmt(s.avg) + suffix, cls(s.avg));
+
+  drawChart(s ? s.equity : [0], s ? s.dates : ['']);
+
+  /* 集計単位でグループ化 */
+  var mode = document.getElementById('groupBy').value;
+  var groups = new Map();
+  for (var i = 0; i < trades.length; i++) {
+    var t = trades[i];
+    var k = groupKeyOf(t, mode);
+    if (!groups.has(k)) {
+      groups.set(k, { label: k, magics: new Set(), symbols: new Set(), list: [] });
+    }
+    var g = groups.get(k);
+    g.magics.add(t.magic);
+    g.symbols.add(t.symbol);
+    g.list.push(t);
+  }
+  var rows = Array.from(groups.values()).map(function (g) {
+    g.s = stats(g.list, unit) || stats(g.list, 'profit');
+    g.money = stats(g.list, 'profit');
+    g.pips = stats(g.list, 'pips');
+    return g;
+  }).sort(function (a, b) { return b.s.net - a.s.net; });
+
+  document.querySelector('#groupTable tbody').innerHTML = rows.map(function (g) {
+    var syms = Array.from(g.symbols).filter(Boolean).join(', ');
+    var mgs = Array.from(g.magics).sort(function (a, b) {
+      return (Number(a) || 0) - (Number(b) || 0);
+    }).join(', ');
+    return '<tr>'
+      + '<td>' + esc(g.label) + '</td>'
+      + '<td>' + esc(mgs) + '</td>'
+      + '<td>' + esc(syms || '-') + '</td>'
+      + '<td class="num">' + g.s.n + '</td>'
+      + '<td class="num ' + cls(g.money.net) + '">' + fx(g.money.net) + '</td>'
+      + '<td class="num ' + (g.pips ? cls(g.pips.net) : '') + '">'
+        + (g.pips ? g.pips.net.toFixed(1) : '-') + '</td>'
+      + '<td class="num">' + g.s.winRate.toFixed(1) + '%</td>'
+      + '<td class="num">' + pfStr(g.s.pf) + '</td>'
+      + '<td class="num">' + fmt(g.s.maxDD) + '</td>'
+      + '<td class="num ' + cls(g.s.avg) + '">' + fmt(g.s.avg) + '</td>'
+      + '</tr>';
+  }).join('') || '<tr><td colspan="10">データなし</td></tr>';
+
+  /* 取引一覧（新しい順・最大2000行） */
+  var view = trades.slice().reverse().slice(0, 2000);
+  document.querySelector('#tradeTable tbody').innerHTML = view.map(function (t) {
+    var openTag = t.closed ? '' : ' <span class="tag">未決済</span>';
+    var rawCell = t.raw ? esc(t.raw) : '<span class="tag">空</span>';
+    return '<tr>'
+      + '<td>' + (esc(t.openTime) || '-') + '</td>'
+      /* time は未決済だとエントリー時刻で埋めている（並び替え用）ので表示は伏せる */
+      + '<td>' + (t.closed ? esc(t.time) : '-') + '</td>'
+      + '<td>' + esc(t.ticket) + '</td>'
+      + '<td>' + esc(t.symbol) + '</td>'
+      + '<td>' + esc(t.type) + openTag + '</td>'
+      + '<td>' + esc(t.ea) + '</td>'
+      + '<td>' + esc(t.magic) + '</td>'
+      + '<td class="num ' + cls(t.profit) + '">' + fx(t.profit) + '</td>'
+      + '<td class="num ' + (typeof t.pips === 'number' ? cls(t.pips) : '') + '">'
+        + (typeof t.pips === 'number' ? t.pips.toFixed(1) : '-') + '</td>'
+      + '<td>' + esc(t.source || '-') + '</td>'
+      + '<td>' + rawCell + '</td>'
+      + '</tr>';
+  }).join('') || '<tr><td colspan="11">データなし</td></tr>';
+}
+
+/* -------------------------------------------------- EA名の対応表（編集） */
+function renderMapTable() {
+  var groups = {};
+  for (var i = 0; i < state.trades.length; i++) {
+    var t = state.trades[i];
+    var m = t.magic || '0';
+    if (!groups[m]) groups[m] = { magic: m, n: 0, net: 0, auto: '', samples: {} };
+    var g = groups[m];
+    g.n++;
+    g.net += t.profit;
+    g.auto = (t.eaAuto !== undefined) ? t.eaAuto : t.ea;
+    if (t.raw) g.samples[t.raw] = true;
+  }
+  var list = Object.keys(groups).map(function (k) { return groups[k]; })
+    .sort(function (a, b) { return b.n - a.n; });
+
+  document.getElementById('mapCount').textContent = list.length + ' マジック';
+  document.querySelector('#mapTable tbody').innerHTML = list.map(function (g) {
+    var ex = Object.keys(g.samples).slice(0, 2).join('  /  ');
+    var cur = state.overrides[g.magic] || '';
+    return '<tr>'
+      + '<td>' + esc(g.magic) + '</td>'
+      + '<td>' + esc(g.auto) + '</td>'
+      + '<td><input type="text" data-magic="' + esc(g.magic) + '" value="' + esc(cur)
+        + '" placeholder="自動判定のまま"></td>'
+      + '<td class="num">' + g.n + '</td>'
+      + '<td class="num ' + cls(g.net) + '">' + fx(g.net) + '</td>'
+      + '<td>' + esc(ex) + '</td>'
+      + '</tr>';
+  }).join('') || '<tr><td colspan="6">データなし</td></tr>';
+}
+
+/* 手動指定を変えたあとの再計算。パーサは通さず判定だけやり直す */
+function refreshIdentity() {
+  if (!state.diag) return;
+  state.diag.warnings = [];
+  consolidateEaByMagic(state.trades, state.diag);
+  state.sources.forEach(function (s) { countEaOk(s.trades, s.diag); });
+  buildWarnings(state.diag);
+  populateFilters();
+  renderBanner();
+  renderDiag();
+  renderMapTable();
+  render();
+}
+
+/* input を作り直すとフォーカスが飛ぶので change（確定時）で拾う */
+document.querySelector('#mapTable tbody').addEventListener('change', function (e) {
+  var el = e.target;
+  if (!el || !el.dataset || !el.dataset.magic) return;
+  var v = el.value.trim();
+  if (v) state.overrides[el.dataset.magic] = v;
+  else delete state.overrides[el.dataset.magic];
+  saveOverrides();
+  refreshIdentity();
+});
+
+document.getElementById('mapExport').addEventListener('click', function () {
+  var n = Object.keys(state.overrides).length;
+  if (!n) { alert('手動指定がまだありません。'); return; }
+  var blob = new Blob([JSON.stringify(state.overrides, null, 2)],
+                      { type: 'application/json' });
+  var url = URL.createObjectURL(blob);
+  var a = document.createElement('a');
+  a.href = url;
+  a.download = 'ea_name_map.json';
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  setTimeout(function () { URL.revokeObjectURL(url); }, 1000);
+  setMapStatus('書き出しました（' + n + ' 件）');
+});
+
+document.getElementById('mapImport').addEventListener('change', function (e) {
+  var f = e.target.files[0];
+  if (!f) return;
+  var fr = new FileReader();
+  fr.onload = function (ev) {
+    try {
+      var obj = JSON.parse(ev.target.result);
+      if (!obj || typeof obj !== 'object' || Array.isArray(obj)) {
+        throw new Error('マジック番号をキーにしたオブジェクトではありません');
+      }
+      state.overrides = obj;
+      saveOverrides();
+      refreshIdentity();
+      setMapStatus('読み込みました（' + Object.keys(obj).length + ' 件）');
+    } catch (err) {
+      alert('JSONを読み込めませんでした: ' + err.message);
+    }
+  };
+  fr.readAsText(f, 'UTF-8');
+  e.target.value = '';
+});
+
+document.getElementById('mapClear').addEventListener('click', function () {
+  var n = Object.keys(state.overrides).length;
+  if (!n) { setMapStatus('手動指定はありません'); return; }
+  if (!confirm('手動指定 ' + n + ' 件をすべて消去します。よろしいですか？')) return;
+  state.overrides = {};
+  saveOverrides();
+  refreshIdentity();
+});
+
+/* ------------------------------------------------------------- チャート */
+/* 日付ラベルの粒度を期間の長さで変える。
+   全点を出すと潰れるので、目盛りは自動間引きで8個程度に抑える。 */
+function daysBetween(a, b) {
+  if (!a || !b) return 0;
+  var pa = a.split('-'), pb = b.split('-');
+  var da = new Date(Number(pa[0]), Number(pa[1]) - 1, Number(pa[2]));
+  var db = new Date(Number(pb[0]), Number(pb[1]) - 1, Number(pb[2]));
+  return Math.round((db - da) / 86400000);
+}
+
+function tickFormatterFor(dates) {
+  var span = daysBetween(dates[0], dates[dates.length - 1]);
+  if (span > 400) return function (s) { return s ? s.slice(0, 7) : ''; };   /* 2023-02 */
+  return function (s) { return s ? s.slice(5) : ''; };                       /* 02-23 */
+}
+
+function drawChart(equity, dates) {
+  var cv = document.getElementById('equityChart');
+  dates = dates || [];
+  if (typeof Chart === 'undefined') { drawFallback(cv, equity, dates); return; }
+
+  var fmt = tickFormatterFor(dates);
+  var short = dates.map(fmt);
+  if (state.chart) state.chart.destroy();
+  state.chart = new Chart(cv.getContext('2d'), {
+    type: 'line',
+    data: {
+      labels: short,
+      datasets: [{
+        data: equity, borderColor: '#2563eb', backgroundColor: 'rgba(37,99,235,.10)',
+        fill: true, tension: 0.1, pointRadius: 0, borderWidth: 1.6
+      }]
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false, animation: false,
+      interaction: { mode: 'index', intersect: false },
+      scales: {
+        x: {
+          display: true,
+          grid: { display: false },
+          ticks: {
+            autoSkip: true, maxTicksLimit: 8,
+            maxRotation: 0, minRotation: 0,
+            font: { size: 10 }, color: '#65727f'
+          }
+        },
+        y: { ticks: { font: { size: 10 }, color: '#65727f' } }
+      },
+      plugins: {
+        legend: { display: false },
+        tooltip: {
+          callbacks: {
+            /* 目盛りは短縮表示なので、ツールチップでは完全な日付を出す */
+            title: function (items) {
+              var i = items.length ? items[0].dataIndex : 0;
+              return dates[i] || '';
+            }
+          }
+        }
+      }
+    }
+  });
+}
+
+/* Chart.js が読めない環境（完全オフライン）でも曲線は出す */
+function drawFallback(cv, eq, dates) {
+  dates = dates || [];
+  var dpr = window.devicePixelRatio || 1;
+  var w = cv.clientWidth || 800, h = cv.clientHeight || 360;
+  cv.width = w * dpr;
+  cv.height = h * dpr;
+  var g = cv.getContext('2d');
+  g.setTransform(dpr, 0, 0, dpr, 0, 0);
+  g.clearRect(0, 0, w, h);
+  var min = Math.min.apply(null, eq), max = Math.max.apply(null, eq);
+  var span = (max - min) || 1;
+  var X = function (i) { return 44 + i / Math.max(1, eq.length - 1) * (w - 54); };
+  var Y = function (v) { return h - 24 - (v - min) / span * (h - 44); };
+  g.strokeStyle = '#dce1e8';
+  [0, 0.25, 0.5, 0.75, 1].forEach(function (p) {
+    var yy = 20 + p * (h - 44);
+    g.beginPath();
+    g.moveTo(44, yy);
+    g.lineTo(w - 10, yy);
+    g.stroke();
+  });
+  g.strokeStyle = '#2563eb';
+  g.lineWidth = 1.6;
+  g.beginPath();
+  eq.forEach(function (v, i) { if (i) g.lineTo(X(i), Y(v)); else g.moveTo(X(i), Y(v)); });
+  g.stroke();
+  g.fillStyle = '#65727f';
+  g.font = '11px sans-serif';
+  g.fillText(max.toFixed(0), 4, Y(max) + 4);
+  g.fillText(min.toFixed(0), 4, Y(min) + 4);
+
+  /* X軸の日付を5点だけ。全部出すと潰れる */
+  if (dates.length > 1) {
+    var fmt = tickFormatterFor(dates);
+    var steps = Math.min(5, dates.length);
+    g.textAlign = 'center';
+    for (var t = 0; t < steps; t++) {
+      var idx = Math.round(t / (steps - 1) * (dates.length - 1));
+      var label = fmt(dates[idx]);
+      if (!label) continue;
+      var xx = Math.min(w - 20, Math.max(24, X(idx)));
+      g.fillText(label, xx, h - 6);
+    }
+    g.textAlign = 'left';
+  }
+}
+
+/* ----------------------------------------------- サンプルによる動作確認
+   MT4 DetailedStatement の実構造を再現したデータ。
+   ヘッダーは14セル（Profit で終端）、決済行だけ15セル目に無名のコメント列が付く。
+   v0.5 がマジックを取れなかったのは、この「ヘッダーに存在しない列」を
+   ヘッダー行のセル数で境界判定していたため。 */
+var SAMPLE_MT4 = [
+'<html><head><meta http-equiv="Content-Type" content="text/html; charset=windows-1252"></head><body><table>',
+'<tr><td colspan="14"><b>Detailed Statement</b></td></tr>',
+'<tr align="center" bgcolor="#C0C0C0"><td>Ticket</td><td>Open Time</td><td>Type</td><td>Size</td><td>Item</td><td>Price</td><td>S / L</td><td>T / P</td><td>Close Time</td><td>Price</td><td>Commission</td><td>Taxes</td><td>Swap</td><td>Profit</td></tr>',
+'<tr align="right"><td>101</td><td>2022.11.18 21:00:03</td><td>buy</td><td>0.01</td><td>eurjpy</td><td>144.191</td><td>143.191</td><td>145.191</td><td>2022.11.21 04:00:00</td><td>144.000</td><td>0.00</td><td>0.00</td><td>-1.00</td><td>-5.00</td><td>20221121 Assye Lisse EUR/JPY [sl]</td></tr>',
+'<tr align="right"><td>102</td><td>2022.11.19 08:10:00</td><td>sell</td><td>0.02</td><td>usdjpy</td><td>140.100</td><td>141.100</td><td>139.100</td><td>2022.11.20 15:00:00</td><td>139.100</td><td>0.00</td><td>0.00</td><td>0.00</td><td>273.00</td><td>20221120 Assye Lisse USD/JPY [tp]</td></tr>',
+'<tr align="right"><td>103</td><td>2022.11.22 01:00:00</td><td>buy</td><td>0.10</td><td>gbpjpy</td><td>168.000</td><td>167.000</td><td>169.000</td><td>2022.11.22 09:30:00</td><td>167.000</td><td>0.00</td><td>0.00</td><td>-2.00</td><td>-227.00</td><td>105801 TWICE_Scalping_M5 [sl]</td></tr>',
+'<tr align="right"><td>104</td><td>2022.11.23 01:00:00</td><td>sell</td><td>0.10</td><td>gbpjpy</td><td>169.000</td><td>170.000</td><td>168.000</td><td>2022.11.23 11:30:00</td><td>168.000</td><td>0.00</td><td>0.00</td><td>-2.00</td><td>1 240.50</td><td>105801 TWICE_Scalping_M5 [tp]</td></tr>',
+'<tr align="right"><td>99</td><td>2022.11.01 00:00:00</td><td>balance</td><td colspan="10">Deposit</td><td>100000.00</td></tr>',
+'<tr align="right"><td>105</td><td>2022.11.24 01:00:00</td><td>buy</td><td>0.05</td><td>eurusd</td><td>1.03000</td><td>0.00000</td><td>0.00000</td><td>2022.11.24 05:00:00</td><td>1.03500</td><td>0.00</td><td>0.00</td><td>0.00</td><td>25.00</td><td>&nbsp;</td></tr>',
+'<tr align="right"><td colspan="13">Closed P/L:</td><td>1306.50</td></tr>',
+'<tr><td colspan="13"><b>Open Trades</b></td></tr>',
+'<tr align="center" bgcolor="#C0C0C0"><td>Ticket</td><td>Open Time</td><td>Type</td><td>Size</td><td>Item</td><td>Price</td><td>S / L</td><td>T / P</td><td>Price</td><td>Commission</td><td>Taxes</td><td>Swap</td><td>Profit</td></tr>',
+'<tr align="right"><td>201</td><td>2022.11.25 01:00:00</td><td>buy</td><td>0.01</td><td>eurjpy</td><td>145.000</td><td>144.000</td><td>146.000</td><td>145.500</td><td>0.00</td><td>0.00</td><td>0.00</td><td>36.00</td><td>20221125 Assye Lisse EUR/JPY</td></tr>',
+'</table></body></html>'].join('\n');
+
+var SAMPLE_MT5 = [
+'<html><head><meta charset="utf-8"></head><body><table>',
+'<tr><td colspan="14"><b>Positions</b></td></tr>',
+'<tr><td>Time</td><td>Position</td><td>Symbol</td><td>Type</td><td>Volume</td><td>Price</td><td>S / L</td><td>T / P</td><td>Time</td><td>Price</td><td>Commission</td><td>Swap</td><td>Profit</td><td>Comment</td></tr>',
+'<tr><td>2023.01.05 10:00:00</td><td>300</td><td>EURJPY</td><td>buy</td><td>0.10</td><td>140.000</td><td>139.000</td><td>141.000</td><td>2023.01.05 18:00:00</td><td>140.500</td><td>-1.00</td><td>0.00</td><td>500.00</td><td>magic:777001 GridMaster</td></tr>',
+'<tr><td>2023.01.06 10:00:00</td><td>301</td><td>EURJPY</td><td>sell</td><td>0.10</td><td>141.000</td><td>142.000</td><td>140.000</td><td>2023.01.06 18:00:00</td><td>141.800</td><td>-1.00</td><td>0.00</td><td>-800.00</td><td>magic:777001 GridMaster</td></tr>',
+'</table></body></html>'].join('\n');
+
+function runSample(html, name) {
+  var res = parseReport(html);
+  res.diag.fileName = name;
+  res.diag.encoding = 'サンプル（内蔵）';
+  var label = 'SAMPLE';
+  res.trades.forEach(function (t) { t.source = label; t.key = label + ':' + t.key; });
+  state.sources = [{ fileName: name, label: label, encoding: 'サンプル（内蔵）',
+                     diag: res.diag, trades: res.trades }];
+  rebuildFromSources();
+  document.getElementById('diagBox').open = true;
+  return res;
+}
+document.getElementById('selfTest').addEventListener('click', function () {
+  runSample(SAMPLE_MT4, 'SAMPLE_DetailedStatement.htm');
+});
+document.getElementById('selfTest5').addEventListener('click', function () {
+  runSample(SAMPLE_MT5, 'SAMPLE_ReportHistory.html');
+});
+
+/* 期待値との自動照合。コンソールで selfCheck() を実行 */
+window.selfCheck = function () {
+  /* 手動指定が入っていると期待値と食い違うので、判定の間だけ外す */
+  var savedOv = state.overrides;
+  state.overrides = {};
+  try {
+    return runSelfCheck();
+  } finally {
+    state.overrides = savedOv;
+  }
+};
+
+function runSelfCheck() {
+  var r = parseReport(SAMPLE_MT4).trades;
+  var expect = [
+    { ticket: '101', magic: '20221121', ea: 'Assye Lisse',       profit: -5,     closed: true },
+    { ticket: '102', magic: '20221120', ea: 'Assye Lisse',       profit: 273,    closed: true },
+    { ticket: '103', magic: '105801',   ea: 'TWICE_Scalping_M5', profit: -227,   closed: true },
+    { ticket: '104', magic: '105801',   ea: 'TWICE_Scalping_M5', profit: 1240.5, closed: true },
+    { ticket: '105', magic: '0',        ea: UNKNOWN_EA,          profit: 25,     closed: true },
+    { ticket: '201', magic: '20221125', ea: 'Assye Lisse',       profit: 36,     closed: false }
+  ];
+  var out = [];
+  expect.forEach(function (e) {
+    var t = null;
+    for (var i = 0; i < r.length; i++) if (r[i].ticket === e.ticket) { t = r[i]; break; }
+    if (!t) { out.push('FAIL ticket ' + e.ticket + ': 行が抽出されていない'); return; }
+    Object.keys(e).forEach(function (k) {
+      if (t[k] !== e[k]) {
+        out.push('FAIL ticket ' + e.ticket + '.' + k
+          + ': got ' + JSON.stringify(t[k]) + ' / want ' + JSON.stringify(e[k]));
+      }
+    });
+  });
+  var m5 = parseReport(SAMPLE_MT5).trades;
+  if (m5.length !== 2) {
+    out.push('FAIL MT5: ' + m5.length + ' trades (want 2)');
+  } else if (m5[0].magic !== '777001' || m5[0].ea !== 'GridMaster') {
+    out.push('FAIL MT5: magic=' + m5[0].magic + ' ea=' + m5[0].ea);
+  }
+  var msg = out.length ? out.join('\n')
+    : 'PASS: MT4サンプル6行 + MT5サンプル2行すべて期待値と一致';
+  console.log(msg);
+  return out.length ? out : 'PASS';
+}
+
+/* ------------------------------------------------------------ イベント */
+['sourceSelect','eaSelect','magicSelect','symbolSelect','inclOpen','groupBy','unit']
+  .forEach(function (id) {
+  document.getElementById(id).addEventListener('change', render);
+});
+
+document.getElementById('periodPreset').addEventListener('change', function () {
+  applyPreset(this.value);
+  renderPeriodHint();
+  render();
+});
+
+/* 日付を直接いじったらプリセットは「期間指定」に切り替える */
+['dateFrom','dateTo'].forEach(function (id) {
+  document.getElementById(id).addEventListener('change', function () {
+    document.getElementById('periodPreset').value = 'custom';
+    renderPeriodHint();
+    render();
+  });
+});
+
+document.getElementById('periodReset').addEventListener('click', function () {
+  document.getElementById('periodPreset').value = 'all';
+  applyPreset('all');
+  renderPeriodHint();
+  render();
+});
+
+document.getElementById('autoMerge').addEventListener('change', function () {
+  if (!state.diag) return;
+  refreshIdentity();
+});
+document.getElementById('reload').addEventListener('click', render);
+document.getElementById('applyPattern').addEventListener('click', function () {
+  state.pattern = document.getElementById('magicPattern').value.trim();
+  if (!state.diag) { alert('先にファイルを読み込んでください'); return; }
+  var c = state.diag.counts;
+  c.magicOk = 0;
+  c.eaOk = 0;
+  for (var i = 0; i < state.trades.length; i++) {
+    var t = state.trades[i];
+    var cc = cleanComment(t.raw);
+    t.magic = extractMagic(cc.clean, t.raw);
+    t.ea = extractEA(cc.clean, t.magic, t.symbol);
+    delete t.eaBase;   /* 統合前の基準値を作り直させる（消し忘れると再抽出が無効化される） */
+    if (t.magic !== '0') c.magicOk++;
+    if (t.ea !== UNKNOWN_EA) c.eaOk++;
+  }
+  refreshIdentity();
+});
+
+/* ------------------------------------------------------------ 起動処理 */
+state.overrides = loadOverrides();
+(function () {
+  /* ブラウザや開き方によっては localStorage が使えない（SecurityError）。
+     使えるかどうかを起動時に判定して伝える。使えない場合はJSON書き出しが命綱。 */
+  var ok = true;
+  try {
+    localStorage.setItem(MAP_KEY + '__probe', '1');
+    localStorage.removeItem(MAP_KEY + '__probe');
+  } catch (e) {
+    ok = false;
+  }
+  var n = Object.keys(state.overrides).length;
+  if (!ok) {
+    setMapStatus('※このブラウザ／開き方では自動保存が使えません。'
+      + '編集後に「JSONで書き出し」、次回は「JSONを読み込み」で復元してください。');
+  } else {
+    setMapStatus(n ? '保存済みの手動指定 ' + n + ' 件を読み込みました'
+                   : '自動保存が使えます（編集すると保存されます）');
+  }
+})();
+renderMapTable();
+</script>
+</body>
+</html>
