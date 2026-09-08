@@ -50,6 +50,9 @@
   .hint{font-size:12px;color:var(--sub);margin-top:6px}
   #mapTable input[type=text]{padding:2px 6px;font-size:12.5px;width:100%;min-width:140px}
   #mapTable td{vertical-align:middle}
+  th[data-k]{cursor:pointer;user-select:none;white-space:nowrap}
+  th[data-k]:hover{background:#e6ecf5}
+  th[data-k] .arrow{color:var(--accent);font-size:10px;margin-left:3px}
   .tag{display:inline-block;background:#e6ecf5;border-radius:4px;padding:1px 6px;font-size:11px;color:#3a4a5f}
 </style>
 </head>
@@ -115,9 +118,11 @@
   <div class="scroll">
     <table id="groupTable">
       <thead><tr>
-        <th>グループ</th><th>マジック</th><th>シンボル</th><th class="num">取引数</th>
-        <th class="num">純損益</th><th class="num">合計pips</th><th class="num">勝率</th>
-        <th class="num">PF</th><th class="num">最大DD</th><th class="num">平均</th>
+        <th data-k="label">グループ</th><th data-k="magics">マジック</th>
+        <th data-k="symbols">シンボル</th><th class="num" data-k="n">取引数</th>
+        <th class="num" data-k="net">純損益</th><th class="num" data-k="pips">合計pips</th>
+        <th class="num" data-k="winRate">勝率</th><th class="num" data-k="pf">PF</th>
+        <th class="num" data-k="maxDD">最大DD</th><th class="num" data-k="avg">平均</th>
       </tr></thead><tbody></tbody>
     </table>
   </div>
@@ -149,9 +154,11 @@
   <div class="scroll">
     <table id="tradeTable">
       <thead><tr>
-        <th>エントリー</th><th>イグジット</th><th>チケット</th><th>シンボル</th><th>種別</th>
-        <th>EA名</th><th>マジック</th><th class="num">損益</th><th class="num">pips</th>
-        <th>ソース</th><th>Comment(生)</th>
+        <th data-k="openTime">エントリー</th><th data-k="time">イグジット</th>
+        <th data-k="ticket">チケット</th><th data-k="symbol">シンボル</th>
+        <th data-k="type">種別</th><th data-k="ea">EA名</th><th data-k="magic">マジック</th>
+        <th class="num" data-k="profit">損益</th><th class="num" data-k="pips">pips</th>
+        <th data-k="source">ソース</th><th data-k="raw">Comment(生)</th>
       </tr></thead><tbody></tbody>
     </table>
   </div>
@@ -1303,6 +1310,66 @@ function card(label, value, klass) {
     + '<div class="value' + (klass ? ' ' + klass : '') + '">' + value + '</div></div>';
 }
 
+/* ------------------------------------------------------------ 列ソート
+   ヘッダーをクリックで並べ替え。同じ列を再度押すと昇順/降順が入れ替わる。
+   既定は取引一覧が「イグジットの新しい順」、集計が「純損益の大きい順」。 */
+var sortState = {
+  tradeTable: { key: 'time', dir: -1 },
+  groupTable: { key: 'net', dir: -1 }
+};
+
+function isEmptyVal(v) { return v === null || v === undefined || v === ''; }
+
+function cmpValues(a, b) {
+  if (typeof a === 'number' && typeof b === 'number') return a - b;
+  /* 数字だけの文字列（チケット・マジック）は数値として比べる */
+  var na = Number(a), nb = Number(b);
+  if (isFinite(na) && isFinite(nb)) return na - nb;
+  return String(a).localeCompare(String(b), 'ja');
+}
+
+function sortRows(rows, tableId, valueOf) {
+  var st = sortState[tableId];
+  var copy = rows.slice();
+  copy.sort(function (x, y) {
+    var a = valueOf(x, st.key), b = valueOf(y, st.key);
+    /* 空欄（pipsが出せない行など）は昇順・降順にかかわらず常に末尾へ。
+       方向を掛けると降順のとき空欄が先頭に来てしまう。 */
+    var ae = isEmptyVal(a), be = isEmptyVal(b);
+    if (ae && be) return 0;
+    if (ae) return 1;
+    if (be) return -1;
+    return cmpValues(a, b) * st.dir;
+  });
+  return copy;
+}
+
+function markSortHeader(tableId) {
+  var ths = document.querySelectorAll('#' + tableId + ' thead th');
+  var st = sortState[tableId];
+  Array.from(ths).forEach(function (th) {
+    var old = th.querySelector('.arrow');
+    if (old) old.remove();
+    if (th.dataset.k === st.key) {
+      var sp = document.createElement('span');
+      sp.className = 'arrow';
+      sp.textContent = st.dir > 0 ? '▲' : '▼';
+      th.appendChild(sp);
+    }
+  });
+}
+
+['tradeTable', 'groupTable'].forEach(function (id) {
+  document.querySelector('#' + id + ' thead').addEventListener('click', function (e) {
+    var th = e.target.closest ? e.target.closest('th') : null;
+    if (!th || !th.dataset.k) return;
+    var st = sortState[id];
+    if (st.key === th.dataset.k) st.dir = -st.dir;
+    else { st.key = th.dataset.k; st.dir = (th.className.indexOf('num') >= 0) ? -1 : 1; }
+    render();
+  });
+});
+
 /* 集計単位に応じたグループキー。
    EA名で見ると買い/売りで別マジックのEAも1本にまとまり、
    EA名+マジックにすると分かれる。 */
@@ -1356,7 +1423,21 @@ function render() {
     g.money = stats(g.list, 'profit');
     g.pips = stats(g.list, 'pips');
     return g;
-  }).sort(function (a, b) { return b.s.net - a.s.net; });
+  });
+  rows = sortRows(rows, 'groupTable', function (g, k) {
+    if (k === 'label') return g.label;
+    if (k === 'magics') return Array.from(g.magics).sort().join(',');
+    if (k === 'symbols') return Array.from(g.symbols).filter(Boolean).sort().join(',');
+    if (k === 'net') return g.money.net;
+    if (k === 'pips') return g.pips ? g.pips.net : null;
+    if (k === 'n') return g.s.n;
+    if (k === 'winRate') return g.s.winRate;
+    if (k === 'pf') return g.s.pf === Infinity ? Number.MAX_VALUE : g.s.pf;
+    if (k === 'maxDD') return g.s.maxDD;
+    if (k === 'avg') return g.s.avg;
+    return g.label;
+  });
+  markSortHeader('groupTable');
 
   document.querySelector('#groupTable tbody').innerHTML = rows.map(function (g) {
     var syms = Array.from(g.symbols).filter(Boolean).join(', ');
@@ -1378,8 +1459,13 @@ function render() {
       + '</tr>';
   }).join('') || '<tr><td colspan="10">データなし</td></tr>';
 
-  /* 取引一覧（新しい順・最大2000行） */
-  var view = trades.slice().reverse().slice(0, 2000);
+  /* 取引一覧（既定はイグジットの新しい順・最大2000行） */
+  var view = sortRows(trades, 'tradeTable', function (t, k) {
+    if (k === 'pips') return (typeof t.pips === 'number') ? t.pips : null;
+    if (k === 'profit') return t.profit;
+    return t[k] == null ? '' : t[k];
+  }).slice(0, 2000);
+  markSortHeader('tradeTable');
   document.querySelector('#tradeTable tbody').innerHTML = view.map(function (t) {
     var openTag = t.closed ? '' : ' <span class="tag">未決済</span>';
     var rawCell = t.raw ? esc(t.raw) : '<span class="tag">空</span>';
