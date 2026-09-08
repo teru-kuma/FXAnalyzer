@@ -7,154 +7,146 @@
 <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 <style>
   :root{
-    --bg:#f7f8fa; --panel:#fff; --line:#e8eaee; --line2:#f1f3f6;
-    --ink:#111827; --sub:#8a94a3; --sub2:#6b7280;
-    --accent:#2563eb; --pos:#16a34a; --neg:#dc2626;
-    --warn:#8a5300; --warnbg:#fff8e6;
-    --r:12px;
+    --bg:#f4f6f9; --panel:#fff; --line:#e2e6ec; --ink:#1c2430; --sub:#6b7684;
+    --accent:#2563eb; --pos:#0a8f3c; --neg:#c62828; --warn:#8a5300; --warnbg:#fff6e0;
   }
   *{box-sizing:border-box}
+  /* アプリシェル: ページ自体はスクロールさせず、左右のペインが個別にスクロールする。
+     ページスクロール1本にすると、サイドの上でホイールを回してもメインが動き、
+     サイドが画面外へ流れていく。ペインを分ければその連動が起きない。 */
   html,body{height:100%}
   body{font-family:"Segoe UI","Hiragino Kaku Gothic ProN","Yu Gothic UI",sans-serif;
-       margin:0;background:var(--bg);color:var(--ink);font-size:14px;overflow:hidden;
-       -webkit-font-smoothing:antialiased}
-  .page{max-width:1560px;margin:0 auto;padding:20px 22px;height:100%;
+       margin:0;background:var(--bg);color:var(--ink);font-size:14px;overflow:hidden}
+  .page{max-width:1500px;margin:0 auto;padding:14px 18px;height:100%;
         display:flex;flex-direction:column}
-  .page-head{margin-bottom:16px;flex:0 0 auto}
-  h1{margin:0 0 4px;font-size:26px;font-weight:700;letter-spacing:-.01em}
-  .ver{font-size:12px;color:var(--sub);font-weight:400}
-  .lead{font-size:13px;color:var(--sub2)}
-  .meta{font-size:12px;color:var(--sub);margin-top:3px}
-  h2{margin:0 0 9px;font-size:13px;color:var(--ink);font-weight:700}
-  h3{margin:0;font-size:16px;font-weight:700}
-  .hint{font-size:11.5px;color:var(--sub);line-height:1.65}
+  .page-head{margin-bottom:12px;flex:0 0 auto}
+  h1{margin:0 0 2px;font-size:21px}
+  .ver{font-size:12px;color:var(--sub);font-weight:normal}
+  h2{margin:0 0 8px;font-size:12px;letter-spacing:.04em;color:var(--sub);
+     text-transform:uppercase;font-weight:700}
+  h3{margin:0 0 10px;font-size:14px}
+  .hint{font-size:11.5px;color:var(--sub);line-height:1.6}
 
-  .layout{display:grid;grid-template-columns:252px minmax(0,1fr);gap:18px;
+  /* ---- 2カラム。左は固定幅で常に見える絞り込み、右が結果 ---- */
+  .layout{display:grid;grid-template-columns:264px minmax(0,1fr);gap:16px;
           flex:1 1 auto;min-height:0}
-  .side{overflow-y:auto;overflow-x:hidden;overscroll-behavior:contain;min-height:0;
-        padding-right:2px}
-  .main{display:flex;flex-direction:column;gap:16px;min-width:0;
+  /* overscroll-behavior:contain で、端まで来ても隣のペインへスクロールが伝播しない */
+  /* 中身は省略表示で収まる作りなので、横スクロールは出さない（保険） */
+  .side{display:flex;flex-direction:column;gap:12px;
+        overflow-y:auto;overflow-x:hidden;overscroll-behavior:contain;
+        min-height:0;padding-right:4px}
+  .main{display:flex;flex-direction:column;gap:14px;min-width:0;
         overflow-y:auto;overscroll-behavior:contain;min-height:0;
-        padding-right:2px;padding-bottom:28px}
+        padding-right:4px;padding-bottom:24px}
+  #results{display:flex;flex-direction:column;gap:14px;min-height:0}
+  /* 空の要素が gap の分だけ場所を取り、左右で開始位置がずれるのを防ぐ */
+  #banner:empty,.stats:empty{display:none}
 
-  /* サイドバーは1枚のカードに、区切り線でセクションを並べる */
-  .side-card{background:var(--panel);border:1px solid var(--line);border-radius:var(--r);
-             padding:2px 16px 16px}
-  .panel{padding:15px 0 2px;border-top:1px solid var(--line2)}
-  .panel:first-child{border-top:none}
+  @media (max-width:980px){
+    html,body{height:auto}
+    body{overflow:auto}
+    .page{height:auto;display:block}
+    .layout{grid-template-columns:1fr;display:block}
+    .side,.main{overflow:visible;min-height:0;display:block}
+    .side > *,.main > *{margin-bottom:12px}
+  }
+
+  .panel,.card{background:var(--panel);border:1px solid var(--line);border-radius:9px;
+               padding:12px 13px}
   .panel:empty{display:none}
+  .card{padding:14px 16px}
 
-  .card{background:var(--panel);border:1px solid var(--line);border-radius:var(--r);
-        padding:18px 20px}
-  .card-head{display:flex;align-items:center;gap:10px;margin-bottom:12px}
-  .card-head .sp{flex:1 1 auto}
-
-  select,button,input[type=text],input[type=date],input[type=number]{
-    padding:6px 9px;border:1px solid var(--line);border-radius:8px;
+  select,button,input[type=text],input[type=date]{
+    padding:5px 8px;border:1px solid var(--line);border-radius:5px;
     background:#fff;font:inherit;font-size:13px;color:inherit}
-  button{cursor:pointer;background:#fff}
-  button:hover{background:#f3f6fb;border-color:#cfd8e6}
-  button:disabled{opacity:.4;cursor:default}
-  button:disabled:hover{background:#fff;border-color:var(--line)}
+  button{cursor:pointer;background:#f7f9fc}
+  button:hover{background:#eef3fb;border-color:var(--accent)}
   .side select,.side input[type=text]{width:100%}
-  .fieldlabel{display:block;font-size:11.5px;color:var(--sub);margin:10px 0 4px}
-  .chk{display:flex;align-items:center;gap:7px;font-size:12.5px;margin-top:9px;cursor:pointer}
-  .row2{display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-top:9px}
+  .fieldlabel{display:block;font-size:11.5px;color:var(--sub);margin:8px 0 3px}
+  .chk{display:flex;align-items:center;gap:6px;font-size:12.5px;margin-top:7px;cursor:pointer}
+  .row2{display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-top:8px}
+  /* input[type=date] は固有の最小幅を持つため、min-width:0 を入れないと
+     グリッドの列幅に収まらずサイドバーに横スクロールが出る */
   .row2 > *{min-width:0}
   .row2 input{width:100%;min-width:0}
 
   .filebtn{display:block;text-align:center;background:var(--accent);color:#fff;
-           padding:11px;border-radius:9px;cursor:pointer;font-weight:600;font-size:13.5px}
+           padding:9px;border-radius:6px;cursor:pointer;font-weight:600;font-size:13px}
   .filebtn:hover{background:#1d4fd8}
-  .drop{margin-top:9px;border:1px dashed #d6dbe4;border-radius:9px;padding:9px;
-        text-align:center;color:var(--sub);font-size:11.5px;transition:.15s}
+  .drop{margin-top:8px;border:2px dashed var(--line);border-radius:6px;padding:10px;
+        text-align:center;color:var(--sub);font-size:12px;transition:.15s}
   .drop.over{border-color:var(--accent);background:#f2f7ff;color:var(--accent)}
 
-  /* 期間のセグメント。選択中は黒地に白 */
-  .seg{display:flex;flex-wrap:wrap;gap:5px}
-  .seg button{flex:1 1 auto;padding:6px 4px;font-size:12px;border-radius:8px}
+  /* ---- 期間のセグメントと前後ナビ ---- */
+  .seg{display:flex;flex-wrap:wrap;gap:4px}
+  .seg button{flex:1 1 auto;padding:5px 4px;font-size:12px}
   .seg button.on{background:var(--ink);color:#fff;border-color:var(--ink)}
-  .navrow{display:flex;align-items:center;gap:6px;margin-top:9px}
-  .navrow button{width:30px;padding:4px 0;font-size:14px;line-height:1}
+  .navrow{display:flex;align-items:center;gap:6px;margin-top:8px}
+  .navrow button{width:30px;padding:3px 0;font-size:15px;line-height:1}
   .navrow span{flex:1;text-align:center;font-size:12.5px;font-weight:600}
 
+  /* ---- 複数選択のチェックリスト ---- */
   .listhead{display:flex;justify-content:space-between;align-items:baseline;gap:6px}
-  .listhead a{color:var(--accent);font-size:11.5px;cursor:pointer}
+  .listhead a{color:var(--accent);font-size:11px;cursor:pointer;text-decoration:none}
   .listhead a:hover{text-decoration:underline}
-  .listbox{margin-top:7px;border:1px solid var(--line);border-radius:9px;overflow:hidden}
-  .listbox label{display:flex;align-items:center;gap:8px;padding:6px 9px;
-                 font-size:12.5px;cursor:pointer;border-bottom:1px solid var(--line2)}
+  .listbox{margin-top:6px;border:1px solid var(--line);border-radius:6px}
+  .listbox label{display:flex;align-items:center;gap:7px;padding:4px 8px;
+                 font-size:12.5px;cursor:pointer;border-bottom:1px solid #f2f4f7}
   .listbox label:last-child{border-bottom:none}
-  .listbox label:hover{background:#f6f9fe}
-  .listbox .cnt{color:var(--sub);font-size:11.5px;min-width:28px;text-align:right}
+  .listbox label:hover{background:#f5f8fd}
+  .listbox .cnt{color:var(--sub);font-size:11px;min-width:26px;text-align:right}
   .listbox .nm{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1 1 auto}
-  .filterbox{width:100%;margin-top:7px}
 
-  .side details > summary{cursor:pointer;list-style:none;display:flex;
-                          align-items:center;gap:7px;font-size:13px;
-                          color:var(--ink);font-weight:700}
-  .side details > summary::-webkit-details-marker{display:none}
-  .side details > summary::before{content:'▸';font-size:10px;color:var(--sub)}
-  .side details[open] > summary::before{content:'▾'}
-  .side details.active-dim > summary{color:var(--accent)}
-  .side .tag.act{background:var(--accent);color:#fff}
-
-  /* ---- メインのタブ ---- */
-  .tabs{display:flex;gap:5px;border-bottom:1px solid var(--line)}
-  .tabs button{border:1px solid transparent;border-bottom:none;background:none;
-               padding:9px 15px;font-size:13.5px;border-radius:10px 10px 0 0;
-               color:var(--sub);font-weight:600}
-  .tabs button:hover{background:#f3f6fb;color:var(--ink)}
-  .tabs button.on{background:var(--panel);border-color:var(--line);color:var(--ink);
-                  margin-bottom:-1px}
-  .tabpane{border-radius:0 var(--r) var(--r) var(--r)}
-
-  /* ---- パンくず ---- */
-  .crumbs{display:flex;align-items:center;gap:7px;flex-wrap:wrap;font-size:12.5px}
+  /* ---- ドリルダウンのパンくず ---- */
+  .crumbs{display:flex;align-items:center;gap:6px;flex-wrap:wrap;font-size:12.5px}
   .crumbs:empty{display:none}
   .crumbs .crlabel{color:var(--sub);font-size:11px}
   .crumbs .crnext{color:var(--accent);font-weight:600}
-  .crumbs .cr{display:inline-flex;align-items:center;gap:7px;background:var(--panel);
-              border:1px solid var(--line);border-radius:999px;padding:4px 7px 4px 12px}
-  .crumbs .cr.cur{background:#eff4ff;border-color:#d3e0fb}
-  .crumbs .cr.root{padding:4px 12px}
+  .crumbs .cr{display:inline-flex;align-items:center;gap:6px;background:var(--panel);
+              border:1px solid var(--line);border-radius:999px;padding:3px 6px 3px 11px}
+  .crumbs .cr.cur{background:#eef3fb;border-color:#c3d6f7}
+  .crumbs .cr.root{padding:3px 11px}
   .crumbs .cr.root[data-crumb]{cursor:pointer}
   .crumbs .cr.root[data-crumb]:hover{border-color:var(--accent);color:var(--accent)}
   .crumbs .cr .dim{color:var(--sub);font-size:11px}
   .crumbs .cr .x{border:none;background:#eef1f6;color:var(--sub);border-radius:50%;
-                 width:18px;height:18px;line-height:1;padding:0;cursor:pointer;font-size:12px}
+                 width:17px;height:17px;line-height:1;padding:0;cursor:pointer;font-size:12px}
   .crumbs .cr .x:hover{background:var(--neg);color:#fff}
-  .crumbs .sep{color:#c4cad4}
+  .crumbs .sep{color:var(--sub)}
 
-  /* ---- 指標とグラフを1枚のカードにまとめる ---- */
-  .stats{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));
-         gap:18px 26px;margin-bottom:20px}
-  .stat .label{font-size:12px;color:var(--sub);display:flex;align-items:center;gap:5px}
-  .stat .value{font-size:27px;font-weight:700;margin-top:3px;letter-spacing:-.02em;
-               white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-  .stat .i{display:inline-flex;align-items:center;justify-content:center;
-           width:14px;height:14px;border-radius:50%;border:1px solid #cbd2dc;
-           color:var(--sub);font-size:9px;cursor:help;flex:0 0 auto}
-  @media (max-width:1000px){.stats{grid-template-columns:repeat(3,minmax(0,1fr))}}
-  @media (max-width:760px){.stats{grid-template-columns:repeat(2,minmax(0,1fr))}}
-  #chart-container{position:relative;height:330px}
+  /* 集計表の行はクリックで1段掘り下げられる */
+  #groupTable tbody tr.drillable{cursor:pointer}
+  #groupTable tbody tr.drillable:hover{background:#f2f7ff}
+  /* 損益の正負を行頭のドットで示す */
+  .dot{display:inline-block;width:7px;height:7px;border-radius:50%;
+       margin-right:7px;vertical-align:middle}
+  #groupTable .dchev{color:var(--sub);margin-right:5px;font-weight:700}
+  #groupTable tbody tr.drillable:hover .dchev{color:var(--accent)}
+  .filterbox{width:100%;margin-top:6px}
+
+  /* ---- 統計カード ---- */
+  /* 6枚が1行に収まる幅にする。128pxだと1150px幅で6枚目が折り返した */
+  .stats{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:8px}
+  @media (max-width:1100px){.stats{grid-template-columns:repeat(3,minmax(0,1fr))}}
+  @media (max-width:600px){.stats{grid-template-columns:repeat(2,minmax(0,1fr))}}
+  .stat-card{background:var(--panel);border:1px solid var(--line);padding:10px 12px;
+             border-radius:9px}
+  .stat-card .label{font-size:11px;color:var(--sub);
+                    display:flex;align-items:center;justify-content:center;gap:4px}
+  .stat-card .i{display:inline-flex;align-items:center;justify-content:center;
+                width:13px;height:13px;border-radius:50%;border:1px solid #cbd2dc;
+                color:var(--sub);font-size:9px;cursor:help;flex:0 0 auto}
+  .stat-card .value{font-size:19px;font-weight:700;margin-top:2px;
+                    white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+
+  #chart-container{position:relative;height:400px}
 
   table{width:100%;border-collapse:collapse;font-size:12.5px;table-layout:fixed}
-  th,td{padding:9px 10px;text-align:left;white-space:nowrap;
-        overflow:hidden;text-overflow:ellipsis;border-bottom:1px solid var(--line2)}
-  th{position:sticky;top:0;background:var(--panel);font-size:11.5px;color:var(--sub);
-     font-weight:600;z-index:2;box-shadow:inset 0 -1px 0 var(--line)}
-  tbody tr:last-child td{border-bottom:none}
-  td.num,th.num{text-align:right}
-  th[data-k]{cursor:pointer;user-select:none}
-  th[data-k]:hover{color:var(--accent)}
-  th[data-k] .arrow{color:var(--accent);font-size:10px;margin-left:3px}
-  .positive{color:var(--pos)}
-  .negative{color:var(--neg)}
-  .tbl{overflow:hidden}
-  .dot{display:inline-block;width:7px;height:7px;border-radius:50%;
-       margin-right:8px;vertical-align:middle}
-
+  th,td{border-bottom:1px solid var(--line);padding:5px 8px;text-align:left;
+        white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  th{background:#f7f9fc;position:sticky;top:0;z-index:2;font-size:11.5px;color:var(--sub);
+     box-shadow:inset 0 -1px 0 var(--line)}
+  /* 取引一覧は列が多いので幅を配分して横スクロールを出さない */
   #tradeTable th:nth-child(1),#tradeTable th:nth-child(2){width:13%}
   #tradeTable th:nth-child(3){width:8%}
   #tradeTable th:nth-child(4){width:9%}
@@ -166,60 +158,75 @@
   #groupTable th:nth-child(2),#groupTable th:nth-child(3){width:13%}
   #mapTable th:nth-child(1){width:12%}
   #mapTable th:nth-child(2),#mapTable th:nth-child(3){width:20%}
+  td.num,th.num{text-align:right}
+  th[data-k]{cursor:pointer;user-select:none}
+  th[data-k]:hover{color:var(--accent)}
+  th[data-k] .arrow{color:var(--accent);font-size:10px;margin-left:3px}
+  .positive{color:var(--pos)}
+  .negative{color:var(--neg)}
+  /* 内側スクロールは持たない。ページのスクロール1本に集約し、
+     見出しは thead を sticky にしてページスクロールに追従させる。
+     （overflow を付けた親があると sticky がその親基準になり効かなくなる） */
+  .tbl{border:1px solid var(--line);border-radius:6px;overflow:hidden}
 
-  #groupTable tbody tr.drillable{cursor:pointer}
-  #groupTable tbody tr.drillable:hover{background:#f6f9fe}
-  #groupTable .dchev{color:var(--sub);margin-right:6px;font-weight:700}
-  #groupTable tbody tr.drillable:hover .dchev{color:var(--accent)}
-
-  .banner{padding:11px 14px;border-radius:10px;font-size:12.5px;line-height:1.7}
-  .banner.ok{background:#effaf3;border:1px solid #cfead9}
-  .banner.warn{background:var(--warnbg);border:1px solid #f0dcae;color:var(--warn)}
-  .banner.info{background:#eff4ff;border:1px solid #d3e0fb}
+  .banner{padding:10px 12px;border-radius:8px;font-size:12.5px;line-height:1.65}
+  .banner.ok{background:#eaf6ee;border:1px solid #bfe3ca}
+  .banner.warn{background:var(--warnbg);border:1px solid #e8cf94;color:var(--warn)}
+  .banner.info{background:#eaf1fd;border:1px solid #c3d6f7}
   .banner + .banner{margin-top:8px}
 
-  details.card > summary{cursor:pointer;font-weight:700;font-size:14px;list-style:none}
-  details.card > summary::-webkit-details-marker{display:none}
-  details.card > summary::before{content:'▸ ';color:var(--sub);font-size:11px}
-  details.card[open] > summary::before{content:'▾ '}
-  details.card[open] > summary{margin-bottom:12px}
-  pre.diag{font-family:Consolas,monospace;font-size:11.5px;line-height:1.6;
-           background:#0f172a;color:#cbd5e1;padding:14px;border-radius:10px;
+  details.card > summary{cursor:pointer;font-weight:600;font-size:13.5px}
+  details.card[open] > summary{margin-bottom:10px}
+  pre.diag{font-family:Consolas,monospace;font-size:11.5px;line-height:1.55;
+           background:#1e242c;color:#d6dde6;padding:12px;border-radius:6px;
            white-space:pre-wrap;word-break:break-all}
-  .controls{display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin:10px 0;font-size:12.5px}
-  .pager{display:flex;align-items:center;gap:8px;flex-wrap:wrap;
-         margin-top:12px;font-size:12.5px;color:var(--sub)}
-  .pager .pager-sp{flex:1 1 auto}
-  .pager input[type=number]{width:66px}
-  #mapTable input[type=text]{padding:3px 7px;font-size:12.5px;width:100%;min-width:140px}
+  .controls{display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin:8px 0;font-size:12.5px}
+  #mapTable input[type=text]{padding:2px 6px;font-size:12.5px;width:100%;min-width:140px}
   #srcTable{table-layout:auto}
-  #srcTable td,#srcTable th{font-size:11.5px;padding:4px 6px;white-space:normal}
-  #srcTable th{position:static;box-shadow:none}
-  .tag{display:inline-block;background:#eef1f6;border-radius:5px;padding:1px 7px;
-       font-size:11px;color:#4b5563;font-weight:400}
+  #srcTable td,#srcTable th{font-size:11.5px;padding:3px 6px;white-space:normal}
+  #srcTable th{position:static}
 
-  @media (max-width:980px){
-    html,body{height:auto}
-    body{overflow:auto}
-    .page{height:auto;display:block}
-    .layout{grid-template-columns:1fr;display:block}
-    .side,.main{overflow:visible;min-height:0;display:block}
-    .side > *,.main > *{margin-bottom:14px}
-  }
+  /* ---- メインのタブ ---- */
+  .tabs{display:flex;gap:4px;border-bottom:1px solid var(--line);padding-bottom:0}
+  .tabs button{border:1px solid transparent;border-bottom:none;background:none;
+               padding:8px 14px;font-size:13px;border-radius:7px 7px 0 0;color:var(--sub)}
+  .tabs button:hover{background:#eef3fb;color:var(--ink)}
+  .tabs button.on{background:var(--panel);border-color:var(--line);color:var(--ink);
+                  font-weight:600;margin-bottom:-1px}
+  .tabpane{border-radius:0 9px 9px 9px}
+
+  /* ---- ページング ---- */
+  .pager{display:flex;align-items:center;gap:8px;flex-wrap:wrap;
+         margin-top:10px;font-size:12.5px;color:var(--sub)}
+  .pager button{padding:3px 10px}
+  .pager .pager-sp{flex:1 1 auto}
+  .pager select{padding:3px 6px}
+  .pager input[type=number]{width:64px;padding:3px 6px;border:1px solid var(--line);
+                            border-radius:5px;font:inherit;font-size:12.5px}
+
+  /* ---- 折りたたみの絞り込みパネル ---- */
+  .side details > summary{cursor:pointer;list-style:none;display:flex;
+                          align-items:baseline;gap:6px;font-size:12px;
+                          letter-spacing:.04em;color:var(--sub);font-weight:700}
+  .side details > summary::-webkit-details-marker{display:none}
+  .side details > summary::before{content:'▸';font-size:10px;color:var(--sub)}
+  .side details[open] > summary::before{content:'▾'}
+  .side details.active-dim > summary{color:var(--accent)}
+  .side .tag.act{background:var(--accent);color:#fff}
+  .tag{display:inline-block;background:#eef1f6;border-radius:4px;padding:1px 6px;
+       font-size:11px;color:#3a4a5f;font-weight:normal}
 </style>
 </head>
 <body>
 <div class="page">
   <header class="page-head">
     <h1>MT4 / MT5 Trade Analyzer <span class="ver">v0.8</span></h1>
-    <div class="lead">MT4/MT5の取引履歴を読み込んで、EA名・マジックナンバー・シンボル別に累積損益を分析します</div>
-    <div class="meta" id="headMeta">完全クライアントサイド動作（読み込んだデータは外部へ送信されません）</div>
+    <div class="hint" id="headMeta">完全クライアントサイド動作（読み込んだデータは外部へ送信されません）</div>
   </header>
 
   <div class="layout">
     <!-- ============ 左サイドバー: 読み込みと絞り込み ============ -->
     <aside class="side">
-      <div class="side-card">
       <section class="panel">
         <h2>データ</h2>
         <label class="filebtn">
@@ -264,7 +271,6 @@
       <section class="panel" id="panel-magic"></section>
       <section class="panel" id="panel-symbol"></section>
       <section class="panel" id="panel-source"></section>
-      </div>
     </aside>
 
     <!-- ============ 右メイン: 結果 ============ -->
@@ -282,10 +288,8 @@
       <div id="results" hidden>
       <div class="crumbs" id="crumbs"></div>
       <div class="banner warn" id="noMatch" hidden></div>
-      <div class="card">
-        <div class="stats" id="stats"></div>
-        <div id="chart-container"><canvas id="equityChart"></canvas></div>
-      </div>
+      <div class="stats" id="stats"></div>
+      <div class="card"><div id="chart-container"><canvas id="equityChart"></canvas></div></div>
 
       <div class="tabs" id="tabs">
         <button data-tab="group" class="on">集計</button>
@@ -295,11 +299,8 @@
       </div>
 
       <section class="card tabpane" data-pane="group">
-        <div class="card-head">
-          <h3>集計</h3><span id="groupCount" class="tag"></span>
-          <span class="sp"></span>
-          <button id="csvGroups">CSVで書き出し</button>
-        </div>
+        <h3>集計 <span id="groupCount" class="tag"></span>
+          <button id="csvGroups" style="float:right">CSVで書き出し</button></h3>
         <div class="hint" id="groupNote"></div>
         <div class="tbl">
           <table id="groupTable">
@@ -316,9 +317,7 @@
       </section>
 
       <section class="card tabpane" data-pane="trades" hidden>
-        <div class="card-head">
-          <h3>取引一覧</h3><span id="tradeCount" class="tag"></span>
-        </div>
+        <h3>取引一覧 <span id="tradeCount" class="tag"></span></h3>
         <div class="tbl">
           <table id="tradeTable">
             <thead><tr>
@@ -341,19 +340,17 @@
           </label>
           <button id="csvTrades">表示中をCSVで書き出し</button>
           <span class="pager-sp"></span>
-          <button id="pageFirst" title="先頭へ">&laquo;</button>
-          <button id="pagePrev">&lsaquo; 前</button>
+          <button id="pageFirst" title="先頭へ">«</button>
+          <button id="pagePrev">‹ 前</button>
           <span id="pageInfo"></span>
           <input type="number" id="pageJump" min="1" step="1" title="ページ番号へ移動">
-          <button id="pageNext">次 &rsaquo;</button>
-          <button id="pageLast" title="末尾へ">&raquo;</button>
+          <button id="pageNext">次 ›</button>
+          <button id="pageLast" title="末尾へ">»</button>
         </div>
       </section>
 
       <section class="card tabpane" data-pane="map" hidden>
-        <div class="card-head">
-          <h3>EA名の対応表</h3><span id="mapCount" class="tag"></span>
-        </div>
+        <h3>EA名の対応表 <span id="mapCount" class="tag"></span></h3>
         <div class="hint">
           マジックごとにEA名を手で指定できます。空欄にすると自動判定に戻ります。
           マジック <code>0</code> は「マジックが取れなかった取引」のまとめ行なので、
@@ -384,12 +381,13 @@
       </section>
 
       <section class="card tabpane" data-pane="diag" hidden>
-        <div class="card-head"><h3>診断情報</h3></div>
+        <h3>診断情報</h3>
         <div class="hint">マジック/EA名が取れない場合は、下の内容をそのまま貼って共有してください。</div>
-        <div class="controls"><button id="copyDiag">診断情報をコピー</button></div>
+        <div class="controls">
+          <button id="copyDiag">診断情報をコピー</button>
+        </div>
         <pre class="diag" id="diag">ファイル未読込</pre>
       </section>
-
       </div><!-- /#results -->
 
     </main>
@@ -630,7 +628,7 @@ function rebuildFromSources() {
   render();
 }
 
-/* 参照UIに合わせて、タイトル下に読み込んだ規模を出す */
+/* タイトル下に読み込んだ規模を出す */
 function renderHeadMeta() {
   var el = document.getElementById('headMeta');
   if (!state.sources.length) {
@@ -1542,7 +1540,8 @@ document.querySelector('.side').addEventListener('toggle', function (e) {
 }, true);
 
 /* ------------------------------------------------------------------ タブ
-   集計・取引一覧・対応表・診断を切り替える。 */
+   集計・取引一覧・対応表・診断を切り替える。
+   4つを縦に並べていたときは、同時に4つのスクロール領域が存在していた。 */
 function showTab(name) {
   state.tab = name;
   Array.from(document.querySelectorAll('#tabs button')).forEach(function (b) {
@@ -1996,7 +1995,7 @@ function pfStr(v) { return v === Infinity ? 'inf' : v.toFixed(2); }
 /* 指標の意味は名前だけでは伝わらないので、ラベル横のマークに説明を出す */
 var STAT_HELP = {
   '純損益': '選択中の取引の損益合計',
-  '合計pips': '選択中の取引のpips合計（数量加重ではなく単純合計）',
+  '合計pips': '選択中の取引のpips合計',
   '最大DD': '累積損益が過去の最高値からどれだけ落ち込んだかの最大値',
   '勝率': '損益がプラスの取引の割合（損益0の取引は母数から除く）',
   'PF': 'プロフィットファクター。総利益 ÷ 総損失。1を超えると利益が上回る',
@@ -2007,7 +2006,7 @@ var STAT_HELP = {
 
 function card(label, value, klass) {
   var help = STAT_HELP[label];
-  return '<div class="stat">'
+  return '<div class="stat-card">'
     + '<div class="label">' + label
     + (help ? '<span class="i" title="' + esc(help) + '">i</span>' : '')
     + '</div>'
@@ -2117,9 +2116,9 @@ function render() {
   var fmt = isPips ? fpips : fx;   /* pipsは小数1桁 */
   var noPips = isPips && !s;
   document.getElementById('stats').innerHTML = noPips
-    ? '<div class="stat">pipsを計算できる取引がありません（価格列が必要です）</div>'
+    ? '<div class="stat-card">pipsを計算できる取引がありません（価格列が必要です）</div>'
     : !s
-      ? '<div class="stat">データなし</div>'
+      ? '<div class="stat-card">データなし</div>'
       : card(isPips ? '合計pips' : '純損益', fmt(s.net) + suffix, cls(s.net))
         + card('最大DD', fmt(s.maxDD) + suffix, '')
         + card('勝率', s.winRate.toFixed(1) + '%', '')
@@ -2455,8 +2454,8 @@ function tickFormatterFor(dates) {
   return function (s) { return s ? s.slice(5) : ''; };                       /* 02-23 */
 }
 
-var POS_LINE = '#16a34a', NEG_LINE = '#dc2626';
-var POS_FILL = 'rgba(22,163,74,.12)', NEG_FILL = 'rgba(220,38,38,.12)';
+var POS_LINE = '#0a8f3c', NEG_LINE = '#c62828';
+var POS_FILL = 'rgba(10,143,60,.12)', NEG_FILL = 'rgba(198,40,40,.12)';
 
 function drawChart(equity, dates) {
   var cv = document.getElementById('equityChart');
