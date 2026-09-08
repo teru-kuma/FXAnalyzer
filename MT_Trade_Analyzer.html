@@ -227,10 +227,13 @@
         </select>
         <label class="fieldlabel">集計単位</label>
         <select id="groupBy">
+          <option value="total">合計（全体で1行）</option>
           <option value="ea">EA名</option>
+          <option value="magic">マジック</option>
+          <option value="symbol">シンボル</option>
           <option value="ea_magic">EA名 + マジック</option>
           <option value="ea_symbol">EA名 + シンボル</option>
-          <option value="magic">マジック</option>
+          <option value="magic_symbol">マジック + シンボル</option>
         </select>
         <label class="chk"><input type="checkbox" id="inclOpen"> 未決済も含む</label>
         <label class="chk"><input type="checkbox" id="mergePartial" checked> 分割決済をまとめる</label>
@@ -1859,9 +1862,14 @@ function markSortHeader(tableId) {
    EA名で見ると買い/売りで別マジックのEAも1本にまとまり、
    EA名+マジックにすると分かれる。 */
 function groupKeyOf(t, mode) {
-  if (mode === 'magic')     return t.magic === '0' ? '(マジックなし)' : t.magic;
-  if (mode === 'ea_magic')  return t.ea + '  @' + t.magic;
-  if (mode === 'ea_symbol') return t.ea + '  / ' + (t.symbol || '-');
+  var mg = (t.magic === '0') ? '(マジックなし)' : t.magic;
+  var sy = t.symbol || '-';
+  if (mode === 'total')        return '全体';
+  if (mode === 'magic')        return mg;
+  if (mode === 'symbol')       return sy;
+  if (mode === 'ea_magic')     return t.ea + '  @' + mg;
+  if (mode === 'ea_symbol')    return t.ea + '  / ' + sy;
+  if (mode === 'magic_symbol') return mg + '  / ' + sy;
   return t.ea;
 }
 
