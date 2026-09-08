@@ -11,10 +11,15 @@
     --accent:#2563eb; --pos:#0a8f3c; --neg:#c62828; --warn:#8a5300; --warnbg:#fff6e0;
   }
   *{box-sizing:border-box}
+  /* アプリシェル: ページ自体はスクロールさせず、左右のペインが個別にスクロールする。
+     ページスクロール1本にすると、サイドの上でホイールを回してもメインが動き、
+     サイドが画面外へ流れていく。ペインを分ければその連動が起きない。 */
+  html,body{height:100%}
   body{font-family:"Segoe UI","Hiragino Kaku Gothic ProN","Yu Gothic UI",sans-serif;
-       margin:0;background:var(--bg);color:var(--ink);font-size:14px}
-  .page{max-width:1500px;margin:0 auto;padding:18px 18px 40px}
-  .page-head{margin-bottom:14px}
+       margin:0;background:var(--bg);color:var(--ink);font-size:14px;overflow:hidden}
+  .page{max-width:1500px;margin:0 auto;padding:14px 18px;height:100%;
+        display:flex;flex-direction:column}
+  .page-head{margin-bottom:12px;flex:0 0 auto}
   h1{margin:0 0 2px;font-size:21px}
   .ver{font-size:12px;color:var(--sub);font-weight:normal}
   h2{margin:0 0 8px;font-size:12px;letter-spacing:.04em;color:var(--sub);
@@ -23,13 +28,25 @@
   .hint{font-size:11.5px;color:var(--sub);line-height:1.6}
 
   /* ---- 2カラム。左は固定幅で常に見える絞り込み、右が結果 ---- */
-  .layout{display:grid;grid-template-columns:264px minmax(0,1fr);gap:16px;align-items:start}
-  .side{display:flex;flex-direction:column;gap:12px;position:sticky;top:18px;
-        max-height:calc(100vh - 36px);overflow-y:auto}
-  .main{display:flex;flex-direction:column;gap:14px;min-width:0}
+  .layout{display:grid;grid-template-columns:264px minmax(0,1fr);gap:16px;
+          flex:1 1 auto;min-height:0}
+  /* overscroll-behavior:contain で、端まで来ても隣のペインへスクロールが伝播しない */
+  .side{display:flex;flex-direction:column;gap:12px;
+        overflow-y:auto;overscroll-behavior:contain;min-height:0;padding-right:4px}
+  .main{display:flex;flex-direction:column;gap:14px;min-width:0;
+        overflow-y:auto;overscroll-behavior:contain;min-height:0;
+        padding-right:4px;padding-bottom:24px}
+  #results{display:flex;flex-direction:column;gap:14px;min-height:0}
+  /* 空の要素が gap の分だけ場所を取り、左右で開始位置がずれるのを防ぐ */
+  #banner:empty,.stats:empty{display:none}
+
   @media (max-width:980px){
-    .layout{grid-template-columns:1fr}
-    .side{position:static;max-height:none}
+    html,body{height:auto}
+    body{overflow:auto}
+    .page{height:auto;display:block}
+    .layout{grid-template-columns:1fr;display:block}
+    .side,.main{overflow:visible;min-height:0;display:block}
+    .side > *,.main > *{margin-bottom:12px}
   }
 
   .panel,.card{background:var(--panel);border:1px solid var(--line);border-radius:9px;
@@ -77,11 +94,15 @@
   .filterbox{width:100%;margin-top:6px}
 
   /* ---- 統計カード ---- */
-  .stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(128px,1fr));gap:10px}
+  /* 6枚が1行に収まる幅にする。128pxだと1150px幅で6枚目が折り返した */
+  .stats{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:8px}
+  @media (max-width:1100px){.stats{grid-template-columns:repeat(3,minmax(0,1fr))}}
+  @media (max-width:600px){.stats{grid-template-columns:repeat(2,minmax(0,1fr))}}
   .stat-card{background:var(--panel);border:1px solid var(--line);padding:10px 12px;
              border-radius:9px}
   .stat-card .label{font-size:11px;color:var(--sub)}
-  .stat-card .value{font-size:20px;font-weight:700;margin-top:2px}
+  .stat-card .value{font-size:19px;font-weight:700;margin-top:2px;
+                    white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 
   #chart-container{position:relative;height:400px}
 
@@ -219,6 +240,21 @@
     <!-- ============ 右メイン: 結果 ============ -->
     <main class="main">
       <div id="banner"></div>
+
+      <div class="card" id="emptyState">
+        <h3>ファイルを読み込んでください</h3>
+        <div class="hint">
+          左の「ファイルを読み込む」から、MT4/MT5のHTMLレポート、または
+          ExportHistoryTSV が出力したTSVを選んでください。画面のどこにドロップしても読み込めます。<br>
+          動作を確かめるだけなら、下の「サンプルで動作確認」から内蔵データを読み込めます。
+        </div>
+        <div class="controls">
+          <button id="emptySample4">サンプルで動作確認（MT4形式）</button>
+          <button id="emptySample5">サンプルで動作確認（MT5形式）</button>
+        </div>
+      </div>
+
+      <div id="results" hidden>
       <div class="stats" id="stats"></div>
       <div class="card"><div id="chart-container"><canvas id="equityChart"></canvas></div></div>
 
@@ -305,6 +341,7 @@
         </div>
         <pre class="diag" id="diag">ファイル未読込</pre>
       </section>
+      </div><!-- /#results -->
 
     </main>
   </div>
@@ -483,6 +520,10 @@ function rebuildFromSources() {
   consolidateEaByMagic(state.trades, state.diag);
   /* ソースごとの取得率も統合後の値に更新する */
   state.sources.forEach(function (s) { countEaOk(s.trades, s.diag); });
+
+  var hasData = state.sources.length > 0;
+  document.getElementById('emptyState').hidden = hasData;
+  document.getElementById('results').hidden = !hasData;
 
   renderSources();
   renderLists();
@@ -2115,6 +2156,12 @@ function runSample(html, name) {
   showTab('diag');
   return res;
 }
+document.getElementById('emptySample4').addEventListener('click', function () {
+  runSample(SAMPLE_MT4, 'SAMPLE_DetailedStatement.htm');
+});
+document.getElementById('emptySample5').addEventListener('click', function () {
+  runSample(SAMPLE_MT5, 'SAMPLE_ReportHistory.html');
+});
 document.getElementById('selfTest').addEventListener('click', function () {
   runSample(SAMPLE_MT4, 'SAMPLE_DetailedStatement.htm');
 });
