@@ -11,6 +11,9 @@
     --accent:#2563eb; --pos:#0a8f3c; --neg:#c62828; --warn:#8a5300; --warnbg:#fff6e0;
   }
   *{box-sizing:border-box}
+  /* hidden 属性は既定が display:none だが、author側で display を指定した要素
+     （.navrow{display:flex} など）では負けて隠れない。ここで確実に効かせる */
+  [hidden]{display:none!important}
   /* アプリシェル: ページ自体はスクロールさせず、左右のペインが個別にスクロールする。
      ページスクロール1本にすると、サイドの上でホイールを回してもメインが動き、
      サイドが画面外へ流れていく。ペインを分ければその連動が起きない。 */
@@ -243,9 +246,9 @@
       <section class="panel">
         <h2>期間</h2>
         <div class="seg" id="periodSeg"></div>
-        <div class="navrow">
+        <div class="navrow" id="periodNav" hidden>
           <button id="periodPrev" title="前の期間へ">‹</button>
-          <span id="periodLabel">全期間</span>
+          <span id="periodLabel"></span>
           <button id="periodNext" title="次の期間へ">›</button>
         </div>
         <div class="row2">
@@ -1748,7 +1751,10 @@ function renderPeriodSeg() {
     return '<button data-p="' + x.id + '"'
       + (period.id === x.id ? ' class="on"' : '') + '>' + x.label + '</button>';
   }).join('');
+  /* 全期間・期間指定では矢印が無効で、ラベルも選択中のボタンと同じ文字になる。
+     行ごと隠して重複表示を無くす。 */
   var fixed = (period.id === 'all' || period.id === 'custom');
+  document.getElementById('periodNav').hidden = fixed;
   document.getElementById('periodPrev').disabled = fixed;
   document.getElementById('periodNext').disabled = fixed || period.offset >= 0;
 }
@@ -1756,8 +1762,12 @@ function renderPeriodSeg() {
 function renderPeriodHint() {
   var r = dataRange();
   var el = document.getElementById('periodHint');
+  /* 基準日の説明は相対期間を選んでいるときだけ意味がある。
+     全期間や日付直接指定のときに出しても読み飛ばされるだけ。 */
+  var relative = (period.id !== 'all' && period.id !== 'custom');
   el.textContent = r.max
-    ? 'データ全体: ' + r.min + ' 〜 ' + r.max + '（期間の基準日はデータ最終日）'
+    ? 'データ全体: ' + r.min + ' 〜 ' + r.max
+      + (relative ? '（基準日はデータ最終日 ' + r.max + '）' : '')
     : '';
 }
 
