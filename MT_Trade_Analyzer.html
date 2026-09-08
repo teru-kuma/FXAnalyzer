@@ -99,6 +99,16 @@
   .side details.active-dim > summary{color:var(--accent)}
   .side .tag.act{background:var(--accent);color:#fff}
 
+  /* ---- メインのタブ ---- */
+  .tabs{display:flex;gap:5px;border-bottom:1px solid var(--line)}
+  .tabs button{border:1px solid transparent;border-bottom:none;background:none;
+               padding:9px 15px;font-size:13.5px;border-radius:10px 10px 0 0;
+               color:var(--sub);font-weight:600}
+  .tabs button:hover{background:#f3f6fb;color:var(--ink)}
+  .tabs button.on{background:var(--panel);border-color:var(--line);color:var(--ink);
+                  margin-bottom:-1px}
+  .tabpane{border-radius:0 var(--r) var(--r) var(--r)}
+
   /* ---- パンくず ---- */
   .crumbs{display:flex;align-items:center;gap:7px;flex-wrap:wrap;font-size:12.5px}
   .crumbs:empty{display:none}
@@ -277,9 +287,16 @@
         <div id="chart-container"><canvas id="equityChart"></canvas></div>
       </div>
 
-      <section class="card">
+      <div class="tabs" id="tabs">
+        <button data-tab="group" class="on">集計</button>
+        <button data-tab="trades">取引一覧</button>
+        <button data-tab="map">EA名の対応表</button>
+        <button data-tab="diag">診断</button>
+      </div>
+
+      <section class="card tabpane" data-pane="group">
         <div class="card-head">
-          <h3>内訳</h3><span id="groupCount" class="tag"></span>
+          <h3>集計</h3><span id="groupCount" class="tag"></span>
           <span class="sp"></span>
           <button id="csvGroups">CSVで書き出し</button>
         </div>
@@ -298,16 +315,16 @@
         </div>
       </section>
 
-      <section class="card">
+      <section class="card tabpane" data-pane="trades" hidden>
         <div class="card-head">
-          <h3>取引履歴</h3><span id="tradeCount" class="tag"></span>
+          <h3>取引一覧</h3><span id="tradeCount" class="tag"></span>
         </div>
         <div class="tbl">
           <table id="tradeTable">
             <thead><tr>
               <th data-k="openTime">エントリー</th><th data-k="time">イグジット</th>
-              <th data-k="ticket">チケット</th><th data-k="symbol">銘柄</th>
-              <th data-k="type">方向</th><th data-k="ea">EA名</th><th data-k="magic">マジック</th>
+              <th data-k="ticket">チケット</th><th data-k="symbol">シンボル</th>
+              <th data-k="type">種別</th><th data-k="ea">EA名</th><th data-k="magic">マジック</th>
               <th class="num" data-k="profit">損益</th><th class="num" data-k="pips">pips</th>
               <th data-k="source" class="src-col">ソース</th><th data-k="raw">Comment(生)</th>
             </tr></thead><tbody></tbody>
@@ -333,8 +350,10 @@
         </div>
       </section>
 
-      <details class="card">
-        <summary>EA名の対応表（手動指定） <span id="mapCount" class="tag"></span></summary>
+      <section class="card tabpane" data-pane="map" hidden>
+        <div class="card-head">
+          <h3>EA名の対応表</h3><span id="mapCount" class="tag"></span>
+        </div>
         <div class="hint">
           マジックごとにEA名を手で指定できます。空欄にすると自動判定に戻ります。
           マジック <code>0</code> は「マジックが取れなかった取引」のまとめ行なので、
@@ -362,14 +381,14 @@
             </tr></thead><tbody></tbody>
           </table>
         </div>
-      </details>
+      </section>
 
-      <details class="card">
-        <summary>診断情報</summary>
+      <section class="card tabpane" data-pane="diag" hidden>
+        <div class="card-head"><h3>診断情報</h3></div>
         <div class="hint">マジック/EA名が取れない場合は、下の内容をそのまま貼って共有してください。</div>
         <div class="controls"><button id="copyDiag">診断情報をコピー</button></div>
         <pre class="diag" id="diag">ファイル未読込</pre>
-      </details>
+      </section>
 
       </div><!-- /#results -->
 
@@ -418,7 +437,7 @@ var state = { trades: [], sources: [], diag: null, chart: null,
               sel: {}, known: {}, listQuery: {}, listOpen: {},
               activeDim: 'ea',   /* いま絞り込みと集計に使っている軸 */
               drill: [],         /* 掘り下げて固定した軸 [{dim,value}] */
-              page: 0, lastSig: '' };
+              page: 0, tab: 'group', lastSig: '' };
 
 /* ------------------------------------------- EA名の手動指定（マジック単位）
    自動判定はどこまで行っても推測なので、最後は手で決められるようにする。
@@ -1521,6 +1540,23 @@ document.querySelector('.side').addEventListener('toggle', function (e) {
     state.listOpen[el.dataset.panel] = el.open;
   }
 }, true);
+
+/* ------------------------------------------------------------------ タブ
+   集計・取引一覧・対応表・診断を切り替える。 */
+function showTab(name) {
+  state.tab = name;
+  Array.from(document.querySelectorAll('#tabs button')).forEach(function (b) {
+    b.className = (b.dataset.tab === name) ? 'on' : '';
+  });
+  Array.from(document.querySelectorAll('.tabpane')).forEach(function (p) {
+    p.hidden = (p.dataset.pane !== name);
+  });
+}
+
+document.getElementById('tabs').addEventListener('click', function (e) {
+  var t = e.target.dataset ? e.target.dataset.tab : null;
+  if (t) showTab(t);
+});
 
 /* ------------------------------------------------------- 取引一覧のページング
    4000件を1つの内側スクロールに詰めるのをやめ、50件ずつ出す。
