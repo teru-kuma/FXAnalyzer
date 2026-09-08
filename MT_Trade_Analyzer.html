@@ -91,12 +91,23 @@
   .listbox label:hover{background:#f5f8fd}
   .listbox .cnt{color:var(--sub);font-size:11px;min-width:26px;text-align:right}
   .listbox .nm{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1 1 auto}
-  /* 「のみ」= この値だけを見る。普段は隠しておき、行にカーソルを乗せたら出す */
-  .listbox .only{visibility:hidden;color:var(--accent);font-size:10.5px;
-                 border:1px solid var(--line);border-radius:4px;padding:0 5px;
-                 cursor:pointer;background:#fff;flex:0 0 auto}
-  .listbox label:hover .only{visibility:visible}
-  .listbox .only:hover{background:#eef3fb;border-color:var(--accent)}
+
+  /* ---- ドリルダウンのパンくず ---- */
+  .crumbs{display:flex;align-items:center;gap:6px;flex-wrap:wrap;font-size:12.5px}
+  .crumbs:empty{display:none}
+  .crumbs .cr{display:inline-flex;align-items:center;gap:6px;background:var(--panel);
+              border:1px solid var(--line);border-radius:999px;padding:3px 6px 3px 11px}
+  .crumbs .cr.root{padding:3px 11px;cursor:pointer}
+  .crumbs .cr.root:hover{border-color:var(--accent);color:var(--accent)}
+  .crumbs .cr .dim{color:var(--sub);font-size:11px}
+  .crumbs .cr .x{border:none;background:#eef1f6;color:var(--sub);border-radius:50%;
+                 width:17px;height:17px;line-height:1;padding:0;cursor:pointer;font-size:12px}
+  .crumbs .cr .x:hover{background:var(--neg);color:#fff}
+  .crumbs .sep{color:var(--sub)}
+
+  /* 集計表の行はクリックで1段掘り下げられる */
+  #groupTable tbody tr.drillable{cursor:pointer}
+  #groupTable tbody tr.drillable:hover{background:#f2f7ff}
   .filterbox{width:100%;margin-top:6px}
 
   /* ---- 統計カード ---- */
@@ -262,6 +273,7 @@
       </div>
 
       <div id="results" hidden>
+      <div class="crumbs" id="crumbs"></div>
       <div class="banner warn" id="noMatch" hidden></div>
       <div class="stats" id="stats"></div>
       <div class="card"><div id="chart-container"><canvas id="equityChart"></canvas></div></div>
@@ -410,7 +422,8 @@ var UNKNOWN_EA = '(不明)';   /* 「(不明)」 */
 var state = { trades: [], sources: [], diag: null, chart: null,
               pattern: '', overrides: {},
               sel: {}, known: {}, listQuery: {}, listOpen: {},
-              activeDim: 'ea',   /* 絞り込みと集計に使う軸。一度に1つだけ */
+              activeDim: 'ea',   /* いま絞り込みと集計に使っている軸 */
+              drill: [],         /* 掘り下げて固定した軸 [{dim,value}] */
               page: 0, tab: 'group', lastSig: '' };
 
 /* ------------------------------------------- EA名の手動指定（マジック単位）
@@ -584,6 +597,10 @@ function rebuildFromSources() {
   /* ソースごとの取得率も統合後の値に更新する */
   state.sources.forEach(function (s) { countEaOk(s.trades, s.diag); });
 
+  /* ファイルを入れ替えたら掘り下げの文脈は捨てる */
+  state.drill = [];
+  state.activeDim = DIMS[0];
+
   var hasData = state.sources.length > 0;
   document.getElementById('emptyState').hidden = hasData;
   document.getElementById('results').hidden = !hasData;
@@ -591,6 +608,7 @@ function rebuildFromSources() {
 
   renderSources();
   renderLists();
+  renderCrumbs();
   applyPeriod();   /* ファイルを足すとデータ範囲が変わるので引き直す */
   renderBanner();
   renderDiag();
@@ -1405,9 +1423,14 @@ var LISTS = [
 ];
 
 function listValues(spec) {
+  /* ドリル文脈の中で数える。ソースのリストだけはソース自身の絞りを外して数える
+     （自分で自分を絞ると、選択解除した口座が一覧から消えて戻せなくなる） */
+  var base = state.sources.length
+    ? contextTrades(spec.key !== 'source')
+    : state.trades;
   var counts = {};
-  for (var i = 0; i < state.trades.length; i++) {
-    var v = spec.of(state.trades[i]);
+  for (var i = 0; i < base.length; i++) {
+    var v = spec.of(base[i]);
     counts[v] = (counts[v] || 0) + 1;
   }
   var keys = Object.keys(counts);
@@ -1435,6 +1458,9 @@ function syncSelections() {
 
 function renderList(spec) {
   var el = document.getElementById(spec.panel);
+  /* 掘り下げで固定済みの軸はパンくずで表しているのでリストを出さない */
+  var pinned = state.drill.some(function (d) { return d.dim === spec.key; });
+  if (pinned) { el.innerHTML = ''; return; }
   var vals = listValues(spec);
   if (!vals.length) { el.innerHTML = ''; return; }
   var sel = state.sel[spec.key];
@@ -1461,17 +1487,11 @@ function renderList(spec) {
     html += '<input type="text" class="filterbox" data-q="' + spec.key
       + '" placeholder="絞り込み" value="' + esc(state.listQuery[spec.key] || '') + '">';
   }
-  /* 「のみ」= この値だけを見る。
-     4つのリストはAND条件なので、例えばマジックを1つに絞っても
-     そのマジックの取引が属するEA名のチェックが外れていれば0件になる。
-     「のみ」は他のリストを全選択に戻してから絞るので、この事故が起きない。 */
   html += '<div class="listbox">' + shown.map(function (v) {
     return '<label title="' + esc(v.value) + '">'
       + '<input type="checkbox" data-sel="' + spec.key + '" value="'
       + esc(v.value) + '"' + (sel.has(v.value) ? ' checked' : '') + '>'
-      + '<span class="nm">' + esc(v.value) + '</span>'
-      + '<a class="only" data-iso-key="' + spec.key + '" data-iso-val="'
-      + esc(v.value) + '" title="これだけを見る（他の絞り込みは解除）">のみ</a>'
+      + '<span class="nm">' + esc(dimLabelOf(spec.key, v.value)) + '</span>'
       + '<span class="cnt">' + v.count + '</span></label>';
   }).join('') + '</div></details>';
   el.innerHTML = html;
@@ -1522,6 +1542,7 @@ function filterSignature() {
     document.getElementById('dateTo').value,
     document.getElementById('inclOpen').checked,
     state.activeDim,
+    state.drill.map(function (d) { return d.dim + '=' + d.value; }).join('>'),
     [state.activeDim, 'source'].map(function (k) {
       var s2 = sel[k];
       return k + ':' + (s2 ? Array.from(s2).sort().join(',') : '');
@@ -1579,25 +1600,9 @@ document.querySelector('.side').addEventListener('input', function (e) {
   }
 });
 
-/* ある値だけを見る。その軸をアクティブにして、他の軸は全選択へ戻す */
-function isolateValue(key, val) {
-  if (key !== 'source') setActiveDim(key);
-  var sel = state.sel[key];
-  sel.clear();
-  sel.add(val);
-  renderLists();
-  render();
-}
 
 document.querySelector('.side').addEventListener('click', function (e) {
   var el = e.target;
-  if (el.dataset && el.dataset.isoKey) {
-    /* label の中の a なので、既定動作のままだとチェックボックスも切り替わる */
-    e.preventDefault();
-    e.stopPropagation();
-    isolateValue(el.dataset.isoKey, el.dataset.isoVal);
-    return;
-  }
   var all = el.dataset ? el.dataset.all : null;
   var none = el.dataset ? el.dataset.none : null;
   if (!all && !none) return;
@@ -1777,7 +1782,8 @@ document.getElementById('periodNext').addEventListener('click', function () {
 
    ソースだけは軸ではなく常時効く絞り込みにしている
    （どの口座のデータを見るかは、何で集計するかとは別の話のため）。 */
-var DIMS = ['ea', 'magic', 'symbol'];
+/* 掘り下げる順序。EA名を選んだ次はシンボルを見たいことが多い */
+var DIMS = ['ea', 'symbol', 'magic'];
 
 function dimValueOf(t, dim) {
   if (dim === 'magic') return t.magic;
@@ -1785,37 +1791,126 @@ function dimValueOf(t, dim) {
   return t.ea;
 }
 
-/* 操作したリストを集計軸にし、他の軸は全選択へ戻す */
-function setActiveDim(dim) {
-  state.activeDim = dim;
-  DIMS.forEach(function (k) {
-    if (k === dim) return;
-    var sel = state.sel[k];
-    if (!sel) return;
-    LISTS.forEach(function (spec) {
-      if (spec.key !== k) return;
-      listValues(spec).forEach(function (v) { sel.add(v.value); });
-    });
-  });
+function dimLabelOf(dim, v) {
+  if (dim === 'magic' && v === '0') return '(マジックなし)';
+  return v;
 }
 
-function filtered() {
+/* まだ掘り下げに使っていない次の軸。無ければ null（これ以上掘れない） */
+function nextDim() {
+  var used = state.drill.map(function (d) { return d.dim; });
+  for (var i = 0; i < DIMS.length; i++) {
+    if (used.indexOf(DIMS[i]) < 0) return DIMS[i];
+  }
+  return null;
+}
+
+/* いまの軸を固定したと仮定したときに、次に来る軸があるか */
+function nextDimAfter(dim) {
+  var used = state.drill.map(function (d) { return d.dim; }).concat([dim]);
+  for (var i = 0; i < DIMS.length; i++) {
+    if (used.indexOf(DIMS[i]) < 0) return DIMS[i];
+  }
+  return null;
+}
+
+/* 期間・未決済・ソース・ドリル文脈まで適用した母集合。
+   サイドバーの件数もこの母集合で数えるので、
+   「PEACEに絞った状態でのシンボル別件数」が出る。 */
+function contextTrades(applySource) {
   var from = document.getElementById('dateFrom').value;
   var to = document.getElementById('dateTo').value;
   var open = document.getElementById('inclOpen').checked;
-  var dim = state.activeDim;
-  var selDim = state.sel[dim];
   var selSrc = state.sel.source;
+  var drill = state.drill;
   return state.trades.filter(function (t) {
     var d = ymd(t);
     if (!open && !t.closed) return false;
     if (from && !(d && d >= from)) return false;
     if (to && !(d && d <= to)) return false;
-    if (selSrc && !selSrc.has(t.source || '-')) return false;
+    if (applySource !== false && selSrc && !selSrc.has(t.source || '-')) return false;
+    for (var i = 0; i < drill.length; i++) {
+      if (dimValueOf(t, drill[i].dim) !== drill[i].value) return false;
+    }
+    return true;
+  });
+}
+
+function filtered() {
+  var dim = state.activeDim;
+  var selDim = dim ? state.sel[dim] : null;
+  return contextTrades().filter(function (t) {
     if (selDim && !selDim.has(dimValueOf(t, dim))) return false;
     return true;
   });
 }
+
+/* 操作したリストを集計軸にする。切り替え先の選択は全部入りに戻す
+   （前に外したチェックが残っていると、軸を変えた瞬間に0件になって驚く） */
+function setActiveDim(dim) {
+  state.activeDim = dim;
+  resetDimSelection(dim);
+}
+
+function resetDimSelection(dim) {
+  var spec = LISTS.filter(function (s) { return s.key === dim; })[0];
+  if (!spec) return;
+  var sel = state.sel[dim];
+  if (!sel) return;
+  sel.clear();
+  listValues(spec).forEach(function (v) { sel.add(v.value); });
+}
+
+/* 集計表の行から1段掘り下げる */
+function drillInto(value) {
+  var nd = nextDim();
+  if (!state.activeDim) return;
+  state.drill.push({ dim: state.activeDim, value: value });
+  var next = nextDim();
+  state.activeDim = next;
+  if (next) resetDimSelection(next);
+  state.page = 0;
+  renderLists();
+  renderCrumbs();
+  render();
+}
+
+/* パンくずを n 段目まで戻す（n=0 で全解除） */
+function drillTo(n) {
+  state.drill = state.drill.slice(0, n);
+  var next = nextDim();
+  state.activeDim = next || DIMS[0];
+  resetDimSelection(state.activeDim);
+  state.page = 0;
+  renderLists();
+  renderCrumbs();
+  render();
+}
+
+function renderCrumbs() {
+  var el = document.getElementById('crumbs');
+  if (!state.drill.length) { el.innerHTML = ''; return; }
+  var html = '<span class="cr root" data-crumb="0">全体</span>';
+  state.drill.forEach(function (d, i) {
+    html += '<span class="sep">›</span><span class="cr">'
+      + '<span class="dim">' + DIM_LABEL[d.dim] + '</span>'
+      + esc(dimLabelOf(d.dim, d.value))
+      + '<button class="x" data-crumb="' + i + '" title="ここまで戻す">×</button></span>';
+  });
+  el.innerHTML = html;
+}
+
+document.getElementById('crumbs').addEventListener('click', function (e) {
+  var n = e.target.dataset ? e.target.dataset.crumb : null;
+  if (n === null || n === undefined) return;
+  drillTo(Number(n));
+});
+
+document.querySelector('#groupTable tbody').addEventListener('click', function (e) {
+  var tr = e.target.closest ? e.target.closest('tr') : null;
+  if (!tr || !tr.classList.contains('drillable')) return;
+  drillInto(tr.dataset.gv);
+});
 
 /* ---------------------------------------------------------------- 集計 */
 /* key は 'profit'（口座通貨）か 'pips'。
@@ -1924,23 +2019,6 @@ function markSortHeader(tableId) {
   });
 });
 
-/* 集計単位に応じたグループキー。
-   EA名で見ると買い/売りで別マジックのEAも1本にまとまり、
-   EA名+マジックにすると分かれる。 */
-function groupKeyOf(t, mode) {
-  var mg = (t.magic === '0') ? '(マジックなし)' : t.magic;
-  var sy = t.symbol || '-';
-  var sc = t.source || '-';
-  if (mode === 'total')        return '全体';
-  if (mode === 'magic')        return mg;
-  if (mode === 'symbol')       return sy;
-  if (mode === 'source')       return sc;
-  if (mode === 'ea_magic')     return t.ea + '  @' + mg;
-  if (mode === 'ea_symbol')    return t.ea + '  / ' + sy;
-  if (mode === 'magic_symbol') return mg + '  / ' + sy;
-  return t.ea;
-}
-
 var DIM_LABEL = { ea: 'EA名', magic: 'マジック', symbol: 'シンボル', source: 'ソース' };
 
 function render() {
@@ -1956,6 +2034,9 @@ function render() {
   var nm = document.getElementById('noMatch');
   if (!trades.length && state.trades.length) {
     var why = [];
+    state.drill.forEach(function (d) {
+      why.push(DIM_LABEL[d.dim] + ' = ' + dimLabelOf(d.dim, d.value));
+    });
     ['source', state.activeDim].forEach(function (k) {
       var spec = LISTS.filter(function (x) { return x.key === k; })[0];
       if (!spec) return;
@@ -1993,16 +2074,20 @@ function render() {
 
   drawChart(s ? s.equity : [0], s ? s.dates : ['']);
 
-  /* 集計軸は絞り込みに使っている軸そのもの */
+  /* 集計軸は絞り込みに使っている軸そのもの。
+     これ以上掘れない場合（3軸すべて固定）は全体を1行にまとめる */
   var mode = state.activeDim;
   var groups = new Map();
   for (var i = 0; i < trades.length; i++) {
     var t = trades[i];
-    var k = groupKeyOf(t, mode);
-    if (!groups.has(k)) {
-      groups.set(k, { label: k, magics: new Set(), symbols: new Set(), list: [] });
+    var raw = mode ? dimValueOf(t, mode) : '全体';
+    if (!groups.has(raw)) {
+      groups.set(raw, {
+        raw: raw, label: mode ? dimLabelOf(mode, raw) : '全体',
+        magics: new Set(), symbols: new Set(), list: []
+      });
     }
-    var g = groups.get(k);
+    var g = groups.get(raw);
     g.magics.add(t.magic);
     g.symbols.add(t.symbol);
     g.list.push(t);
@@ -2040,6 +2125,8 @@ function render() {
     + '　／　取引数・勝率・PF・最大DD・平均は表示単位「' + u + '」で計算'
     + (isPips ? '（pipsを算出できない取引は除外）' : '');
 
+  /* まだ掘れる軸が残っているときだけ行をクリック可能にする */
+  var canDrill = !!(mode && nextDimAfter(mode));
   document.querySelector('#groupTable tbody').innerHTML = rows.map(function (g) {
     var syms = Array.from(g.symbols).filter(Boolean).join(', ');
     var mgs = Array.from(g.magics).sort(function (a, b) {
@@ -2047,8 +2134,9 @@ function render() {
     }).join(', ');
     /* グループ名とマジック一覧は列幅に収まらず切れるので全文を title に入れる。
        EA名でまとめるとマジックが何個も並ぶため、無いと読めない。 */
-    return '<tr>'
-      + '<td title="' + esc(g.label) + '">' + esc(g.label) + '</td>'
+    return '<tr' + (canDrill ? ' class="drillable" data-gv="' + esc(g.raw) + '"' : '') + '>'
+      + '<td title="' + esc(g.label) + (canDrill ? '（クリックで掘り下げ）' : '') + '">'
+        + esc(g.label) + '</td>'
       + '<td title="' + esc(mgs) + '">' + esc(mgs) + '</td>'
       + '<td title="' + esc(syms) + '">' + esc(syms || '-') + '</td>'
       + '<td class="num">' + g.s.n + '</td>'
