@@ -161,9 +161,13 @@
   .tabpane{border-radius:0 9px 9px 9px}
 
   /* ---- ページング ---- */
-  .pager{display:flex;align-items:center;gap:8px;justify-content:flex-end;
+  .pager{display:flex;align-items:center;gap:8px;flex-wrap:wrap;
          margin-top:10px;font-size:12.5px;color:var(--sub)}
   .pager button{padding:3px 10px}
+  .pager .pager-sp{flex:1 1 auto}
+  .pager select{padding:3px 6px}
+  .pager input[type=number]{width:64px;padding:3px 6px;border:1px solid var(--line);
+                            border-radius:5px;font:inherit;font-size:12.5px}
 
   /* ---- 折りたたみの絞り込みパネル ---- */
   .side details > summary{cursor:pointer;list-style:none;display:flex;
@@ -195,6 +199,8 @@
         <div class="drop" id="drop">ここにドロップも可</div>
         <div class="hint">MT4/MT5のHTMLレポート・TSV。複数口座をまとめて追加できます。</div>
         <div id="sources"></div>
+        <button id="clearAll" hidden style="width:100%;margin-top:8px">
+          読み込み済みをすべて外す</button>
       </section>
 
       <section class="panel">
@@ -255,6 +261,7 @@
       </div>
 
       <div id="results" hidden>
+      <div class="banner warn" id="noMatch" hidden></div>
       <div class="stats" id="stats"></div>
       <div class="card"><div id="chart-container"><canvas id="equityChart"></canvas></div></div>
 
@@ -266,7 +273,9 @@
       </div>
 
       <section class="card tabpane" data-pane="group">
-        <h3>集計 <span id="groupCount" class="tag"></span></h3>
+        <h3>集計 <span id="groupCount" class="tag"></span>
+          <button id="csvGroups" style="float:right">CSVで書き出し</button></h3>
+        <div class="hint" id="groupNote"></div>
         <div class="tbl">
           <table id="groupTable">
             <thead><tr>
@@ -274,7 +283,8 @@
               <th data-k="symbols">シンボル</th><th class="num" data-k="n">取引数</th>
               <th class="num" data-k="net">純損益</th><th class="num" data-k="pips">合計pips</th>
               <th class="num" data-k="winRate">勝率</th><th class="num" data-k="pf">PF</th>
-              <th class="num" data-k="maxDD">最大DD</th><th class="num" data-k="avg">平均</th>
+              <th class="num" data-k="maxDD" id="thMaxDD">最大DD</th>
+              <th class="num" data-k="avg" id="thAvg">平均</th>
             </tr></thead><tbody></tbody>
           </table>
         </div>
@@ -294,9 +304,22 @@
           </table>
         </div>
         <div class="pager">
+          <label>表示件数
+            <select id="pageSize">
+              <option value="50">50</option>
+              <option value="100">100</option>
+              <option value="200">200</option>
+              <option value="500">500</option>
+            </select>
+          </label>
+          <button id="csvTrades">表示中をCSVで書き出し</button>
+          <span class="pager-sp"></span>
+          <button id="pageFirst" title="先頭へ">«</button>
           <button id="pagePrev">‹ 前</button>
           <span id="pageInfo"></span>
+          <input type="number" id="pageJump" min="1" step="1" title="ページ番号へ移動">
           <button id="pageNext">次 ›</button>
+          <button id="pageLast" title="末尾へ">»</button>
         </div>
       </section>
 
@@ -421,6 +444,43 @@ function saveOverrides() {
   }
 }
 
+/* ------------------------------------------------------ 表示設定の保存 (9)
+   EA名の対応表は保存されるのに表示設定だけ毎回リセットされるのは不統一。
+   絞り込みの選択内容はデータ次第で変わるので保存しない（設定だけ覚える）。 */
+var SET_KEY = 'mt_trade_analyzer_settings_v1';
+var SETTING_IDS = ['unit', 'groupBy', 'inclOpen', 'mergePartial',
+                   'mergeSameTime', 'autoMerge'];
+
+function saveSettings() {
+  try {
+    var o = { pageSize: PAGE_SIZE, period: period.id };
+    SETTING_IDS.forEach(function (id) {
+      var el = document.getElementById(id);
+      o[id] = (el.type === 'checkbox') ? el.checked : el.value;
+    });
+    localStorage.setItem(SET_KEY, JSON.stringify(o));
+  } catch (e) { /* 保存できない環境でも動作に影響は無い */ }
+}
+
+function loadSettings() {
+  var o;
+  try {
+    o = JSON.parse(localStorage.getItem(SET_KEY) || '{}');
+  } catch (e) { return; }
+  if (!o || typeof o !== 'object') return;
+  SETTING_IDS.forEach(function (id) {
+    if (o[id] === undefined) return;
+    var el = document.getElementById(id);
+    if (el.type === 'checkbox') el.checked = !!o[id];
+    else el.value = o[id];
+  });
+  if (o.pageSize) {
+    PAGE_SIZE = Number(o.pageSize) || 50;
+    document.getElementById('pageSize').value = String(PAGE_SIZE);
+  }
+  if (o.period) period.id = o.period;
+}
+
 function applyOverrides(trades) {
   for (var i = 0; i < trades.length; i++) {
     var t = trades[i];
@@ -524,6 +584,7 @@ function rebuildFromSources() {
   var hasData = state.sources.length > 0;
   document.getElementById('emptyState').hidden = hasData;
   document.getElementById('results').hidden = !hasData;
+  document.getElementById('clearAll').hidden = !hasData;
 
   renderSources();
   renderLists();
@@ -552,6 +613,16 @@ function renderSources() {
     + '<th class="num">未決済</th><th></th></tr></thead>'
     + '<tbody>' + rows + '</tbody></table>';
 }
+
+document.getElementById('clearAll').addEventListener('click', function () {
+  if (!state.sources.length) return;
+  if (!confirm('読み込み済みの ' + state.sources.length
+      + ' ファイル（' + state.trades.length + ' 件）をすべて外します。よろしいですか？')) return;
+  state.sources = [];
+  state.trades = [];
+  state.diag = null;
+  rebuildFromSources();
+});
 
 document.getElementById('sources').addEventListener('click', function (e) {
   var el = e.target;
@@ -1428,6 +1499,8 @@ document.getElementById('tabs').addEventListener('click', function (e) {
    絞り込みが変わったら1ページ目へ戻す。 */
 var PAGE_SIZE = 50;
 
+function pageCount(total) { return Math.max(1, Math.ceil(total / PAGE_SIZE)); }
+
 function filterSignature() {
   var sel = state.sel;
   return [
@@ -1441,11 +1514,27 @@ function filterSignature() {
   ].join('#');
 }
 
+document.getElementById('pageFirst').addEventListener('click', function () {
+  state.page = 0; render();
+});
 document.getElementById('pagePrev').addEventListener('click', function () {
   if (state.page > 0) { state.page--; render(); }
 });
 document.getElementById('pageNext').addEventListener('click', function () {
-  state.page++;
+  state.page++; render();
+});
+document.getElementById('pageLast').addEventListener('click', function () {
+  state.page = 1e9;   /* render 側で最終ページに丸められる */
+  render();
+});
+document.getElementById('pageJump').addEventListener('change', function () {
+  var v = parseInt(this.value, 10);
+  if (isFinite(v)) { state.page = Math.max(0, v - 1); render(); }
+});
+document.getElementById('pageSize').addEventListener('change', function () {
+  PAGE_SIZE = Number(this.value) || 50;
+  state.page = 0;
+  saveSettings();
   render();
 });
 
@@ -1617,6 +1706,7 @@ document.getElementById('periodSeg').addEventListener('click', function (e) {
   if (!id) return;
   period.id = id;
   period.offset = 0;
+  saveSettings();
   applyPeriod();
   render();
 });
@@ -1689,7 +1779,15 @@ function stats(trades, key) {
   };
 }
 
-function fx(n) { return n.toFixed(2); }
+/* 金額は桁区切りを入れる。4321932.00 のままでは桁が読めず、
+   Chart.js のY軸だけ 4,500,000 と区切られていて表記も不統一だった。 */
+function nf(n, d) {
+  if (n === null || n === undefined || !isFinite(n)) return '-';
+  return n.toLocaleString('ja-JP',
+    { minimumFractionDigits: d, maximumFractionDigits: d });
+}
+function fx(n) { return nf(n, 2); }
+function fpips(n) { return nf(n, 1); }
 function cls(n) { return n >= 0 ? 'positive' : 'negative'; }
 function pfStr(v) { return v === Infinity ? 'inf' : v.toFixed(2); }
 function card(label, value, klass) {
@@ -1775,8 +1873,32 @@ function render() {
   var sMoney = stats(trades, 'profit');
   document.getElementById('tradeCount').textContent = trades.length + ' 件';
 
+  /* 0件のとき「データなし」だけだと、絞り込みで消えたのか
+     元々無いのか分からない。どのフィルタが効いているかを出す。 */
+  var nm = document.getElementById('noMatch');
+  if (!trades.length && state.trades.length) {
+    var why = [];
+    LISTS.forEach(function (spec) {
+      var total = listValues(spec).length;
+      var sel = state.sel[spec.key];
+      if (sel && total && sel.size < total) {
+        why.push(spec.title + ' ' + sel.size + '/' + total + ' 件を選択');
+      }
+    });
+    var f0 = document.getElementById('dateFrom').value;
+    var t0 = document.getElementById('dateTo').value;
+    if (f0 || t0) why.push('期間 ' + (f0 || '最初') + ' 〜 ' + (t0 || '最後'));
+    if (!document.getElementById('inclOpen').checked) why.push('未決済を除外');
+    nm.hidden = false;
+    nm.textContent = '絞り込みの条件に合う取引が0件です（読み込み済み '
+      + state.trades.length + ' 件）。'
+      + (why.length ? '現在の条件: ' + why.join(' / ') : '');
+  } else {
+    nm.hidden = true;
+  }
+
   var suffix = isPips ? ' pips' : '';
-  var fmt = isPips ? function (n) { return n.toFixed(1); } : fx;   /* pipsは小数1桁 */
+  var fmt = isPips ? fpips : fx;   /* pipsは小数1桁 */
   var noPips = isPips && !s;
   document.getElementById('stats').innerHTML = noPips
     ? '<div class="stat-card">pipsを計算できる取引がありません（価格列が必要です）</div>'
@@ -1826,20 +1948,31 @@ function render() {
   });
   markSortHeader('groupTable');
   document.getElementById('groupCount').textContent = rows.length + ' グループ';
+  state.csvGroups = rows;
+  /* 純損益と合計pipsは常に両方出るが、勝率・PF・最大DD・平均・取引数は
+     表示単位に従って計算される。どちらの基準か分からないと誤読するので明示する。 */
+  var u = isPips ? 'pips' : '金額';
+  document.getElementById('thMaxDD').firstChild.nodeValue = isPips ? '最大DD(pips)' : '最大DD';
+  document.getElementById('thAvg').firstChild.nodeValue = isPips ? '平均(pips)' : '平均';
+  document.getElementById('groupNote').textContent =
+    '取引数・勝率・PF・最大DD・平均は表示単位「' + u + '」で計算しています'
+    + (isPips ? '（pipsを算出できない取引は除外）' : '');
 
   document.querySelector('#groupTable tbody').innerHTML = rows.map(function (g) {
     var syms = Array.from(g.symbols).filter(Boolean).join(', ');
     var mgs = Array.from(g.magics).sort(function (a, b) {
       return (Number(a) || 0) - (Number(b) || 0);
     }).join(', ');
+    /* グループ名とマジック一覧は列幅に収まらず切れるので全文を title に入れる。
+       EA名でまとめるとマジックが何個も並ぶため、無いと読めない。 */
     return '<tr>'
-      + '<td>' + esc(g.label) + '</td>'
-      + '<td>' + esc(mgs) + '</td>'
-      + '<td>' + esc(syms || '-') + '</td>'
+      + '<td title="' + esc(g.label) + '">' + esc(g.label) + '</td>'
+      + '<td title="' + esc(mgs) + '">' + esc(mgs) + '</td>'
+      + '<td title="' + esc(syms) + '">' + esc(syms || '-') + '</td>'
       + '<td class="num">' + g.s.n + '</td>'
       + '<td class="num ' + cls(g.money.net) + '">' + fx(g.money.net) + '</td>'
       + '<td class="num ' + (g.pips ? cls(g.pips.net) : '') + '">'
-        + (g.pips ? g.pips.net.toFixed(1) : '-') + '</td>'
+        + (g.pips ? fpips(g.pips.net) : '-') + '</td>'
       + '<td class="num">' + g.s.winRate.toFixed(1) + '%</td>'
       + '<td class="num">' + pfStr(g.s.pf) + '</td>'
       + '<td class="num">' + fmt(g.s.maxDD) + '</td>'
@@ -1855,7 +1988,7 @@ function render() {
     if (k === 'profit') return t.profit;
     return t[k] == null ? '' : t[k];
   });
-  var pages = Math.max(1, Math.ceil(sorted.length / PAGE_SIZE));
+  var pages = pageCount(sorted.length);
   if (state.page > pages - 1) state.page = pages - 1;
   if (state.page < 0) state.page = 0;
   var from0 = state.page * PAGE_SIZE;
@@ -1867,7 +2000,13 @@ function render() {
       + ' / ' + sorted.length + ' 件（' + (state.page + 1) + ' / ' + pages + 'ページ）'
     : '0 件';
   document.getElementById('pagePrev').disabled = (state.page <= 0);
+  document.getElementById('pageFirst').disabled = (state.page <= 0);
   document.getElementById('pageNext').disabled = (state.page >= pages - 1);
+  document.getElementById('pageLast').disabled = (state.page >= pages - 1);
+  var jump = document.getElementById('pageJump');
+  jump.max = pages;
+  jump.value = state.page + 1;
+  state.csvRows = sorted;   /* CSV書き出しは表示中の絞り込み・並び順すべてを対象にする */
 
   /* ソースが1つしかないなら「ソース」列は場所の無駄なので隠す */
   var multiSrc = state.sources.length > 1;
@@ -1884,13 +2023,13 @@ function render() {
       + '<td title="' + esc(t.time) + '">' + (t.closed ? shortT(t.time) : '-') + '</td>'
       + '<td>' + esc(t.ticket)
         + (t.parts > 1 ? ' <span class="tag">' + t.parts + '分割</span>' : '') + '</td>'
-      + '<td>' + esc(t.symbol) + '</td>'
+      + '<td title="' + esc(t.symbol) + '">' + esc(t.symbol) + '</td>'
       + '<td>' + esc(t.type) + openTag + '</td>'
-      + '<td>' + esc(t.ea) + '</td>'
+      + '<td title="' + esc(t.ea) + '">' + esc(t.ea) + '</td>'
       + '<td>' + esc(t.magic) + '</td>'
       + '<td class="num ' + cls(t.profit) + '">' + fx(t.profit) + '</td>'
       + '<td class="num ' + (typeof t.pips === 'number' ? cls(t.pips) : '') + '">'
-        + (typeof t.pips === 'number' ? t.pips.toFixed(1) : '-') + '</td>'
+        + (typeof t.pips === 'number' ? fpips(t.pips) : '-') + '</td>'
       + '<td class="src-col"' + (multiSrc ? '' : ' hidden') + '>'
         + esc(t.source || '-') + '</td>'
       + '<td title="' + esc(t.raw) + '">' + rawCell + '</td>'
@@ -2000,6 +2139,73 @@ document.getElementById('mapClear').addEventListener('click', function () {
   state.overrides = {};
   saveOverrides();
   refreshIdentity();
+});
+
+/* ------------------------------------------------------- CSV書き出し (12)
+   絞り込みと並び順をそのまま反映した内容を出す。
+   ExcelがUTF-8を正しく開けるようBOMを付ける。 */
+/* CSVの引用符・区切り・改行。エスケープ表記を避けて組み立てている。
+   （ソース生成時に r n のエスケープが実際の改行へ潰れ、正規表現が壊れた） */
+var CSV_CRLF = String.fromCharCode(13) + String.fromCharCode(10);
+var RE_CSV_QUOTE = new RegExp('[",' + CSV_CRLF + ']');
+var CSV_BOM = String.fromCharCode(65279);   /* ExcelがUTF-8を正しく開くため */
+
+function toCsv(rows, header, cell) {
+  var esc2 = function (v) {
+    var t = (v === null || v === undefined) ? '' : String(v);
+    return RE_CSV_QUOTE.test(t) ? '"' + t.split('"').join('""') + '"' : t;
+  };
+  var lines = [header.map(esc2).join(',')];
+  rows.forEach(function (r) { lines.push(cell(r).map(esc2).join(',')); });
+  return CSV_BOM + lines.join(CSV_CRLF);
+}
+
+function downloadText(text, filename) {
+  var blob = new Blob([text], { type: 'text/csv;charset=utf-8' });
+  var url = URL.createObjectURL(blob);
+  var a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  setTimeout(function () { URL.revokeObjectURL(url); }, 1000);
+}
+
+function stamp() {
+  var d = new Date();
+  return d.getFullYear() + String(d.getMonth() + 1).padStart(2, '0')
+    + String(d.getDate()).padStart(2, '0');
+}
+
+document.getElementById('csvTrades').addEventListener('click', function () {
+  var rows = state.csvRows || [];
+  if (!rows.length) { alert('書き出す取引がありません。'); return; }
+  downloadText(toCsv(rows,
+    ['エントリー','イグジット','チケット','シンボル','種別','EA名','マジック',
+     '損益','pips','ロット','分割数','ソース','コメント'],
+    function (t) {
+      return [t.openTime, t.closed ? t.time : '', t.ticket, t.symbol, t.type,
+              t.ea, t.magic, t.profit,
+              (typeof t.pips === 'number' ? t.pips : ''),
+              (isFinite(t.lots) ? t.lots : ''), t.parts || 1,
+              t.source || '', t.raw];
+    }), 'trades_' + stamp() + '.csv');
+});
+
+document.getElementById('csvGroups').addEventListener('click', function () {
+  var rows = state.csvGroups || [];
+  if (!rows.length) { alert('書き出す集計がありません。'); return; }
+  downloadText(toCsv(rows,
+    ['グループ','マジック','シンボル','取引数','純損益','合計pips',
+     '勝率(%)','PF','最大DD','平均'],
+    function (g) {
+      return [g.label, Array.from(g.magics).join(' '),
+              Array.from(g.symbols).filter(Boolean).join(' '),
+              g.s.n, g.money.net, (g.pips ? g.pips.net : ''),
+              g.s.winRate.toFixed(1), (g.s.pf === Infinity ? '' : g.s.pf.toFixed(2)),
+              g.s.maxDD, g.s.avg];
+    }), 'groups_' + stamp() + '.csv');
 });
 
 /* ------------------------------------------------------------- チャート */
@@ -2145,6 +2351,13 @@ var SAMPLE_MT5 = [
 '</table></body></html>'].join('\n');
 
 function runSample(html, name) {
+  /* サンプルは読み込み済みのソースを置き換える。
+     4000件読み込んだ後に押して全部消える事故があったので確認を挟む。 */
+  var real = state.sources.filter(function (x) { return x.label !== 'SAMPLE'; });
+  if (real.length && !confirm('読み込み済みのデータ（' + state.trades.length
+      + ' 件）をサンプルに置き換えます。よろしいですか？')) {
+    return null;
+  }
   var res = parseReport(html);
   res.diag.fileName = name;
   res.diag.encoding = 'サンプル（内蔵）';
@@ -2217,13 +2430,17 @@ function runSelfCheck() {
 
 /* ------------------------------------------------------------ イベント */
 ['inclOpen','groupBy','unit'].forEach(function (id) {
-  document.getElementById(id).addEventListener('change', render);
+  document.getElementById(id).addEventListener('change', function () {
+    saveSettings();
+    render();
+  });
 });
 
 
 
 
 document.getElementById('autoMerge').addEventListener('change', function () {
+  saveSettings();
   if (!state.diag) return;
   refreshIdentity();
 });
@@ -2231,6 +2448,7 @@ document.getElementById('autoMerge').addEventListener('change', function () {
 /* 集約は結合のやり直しが必要（元データから作り直す） */
 ['mergePartial','mergeSameTime'].forEach(function (id) {
   document.getElementById(id).addEventListener('change', function () {
+    saveSettings();
     if (state.sources.length) rebuildFromSources();
   });
 });
@@ -2254,6 +2472,8 @@ document.getElementById('applyPattern').addEventListener('click', function () {
 });
 
 /* ------------------------------------------------------------ 起動処理 */
+loadSettings();
+applyPeriod();
 state.overrides = loadOverrides();
 (function () {
   /* ブラウザや開き方によっては localStorage が使えない（SecurityError）。
