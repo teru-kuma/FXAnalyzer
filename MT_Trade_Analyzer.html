@@ -35,8 +35,10 @@
           flex:1 1 auto;min-height:0}
   /* overscroll-behavior:contain で、端まで来ても隣のペインへスクロールが伝播しない */
   /* 中身は省略表示で収まる作りなので、横スクロールは出さない（保険） */
+  /* scrollbar-gutter でスクロールバーの有無による幅の変動を無くす */
   .side{display:flex;flex-direction:column;gap:12px;
         overflow-y:auto;overflow-x:hidden;overscroll-behavior:contain;
+        scrollbar-gutter:stable;
         min-height:0;padding-right:4px}
   .main{display:flex;flex-direction:column;gap:14px;min-width:0;
         overflow-y:auto;overscroll-behavior:contain;min-height:0;
@@ -81,12 +83,15 @@
   .drop.over{border-color:var(--accent);background:#f2f7ff;color:var(--accent)}
 
   /* ---- 期間のセグメントと前後ナビ ---- */
-  .seg{display:flex;flex-wrap:wrap;gap:4px}
-  .seg button{flex:1 1 auto;padding:5px 4px;font-size:12px}
+  /* 段組みを固定して、選ぶたびに折り返し方が変わらないようにする */
+  .seg{display:grid;grid-template-columns:repeat(4,1fr);gap:4px}
+  .seg button{padding:5px 2px;font-size:11.5px;white-space:nowrap}
+  .seg button:last-child{grid-column:1 / -1}
   .seg button.on{background:var(--ink);color:#fff;border-color:var(--ink)}
   .navrow{display:flex;align-items:center;gap:6px;margin-top:8px}
   .navrow button{width:30px;padding:3px 0;font-size:15px;line-height:1}
-  .navrow span{flex:1;text-align:center;font-size:12.5px;font-weight:600}
+  .navrow span{flex:1;text-align:center;font-size:11.5px;font-weight:600;
+               white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 
   /* ---- 複数選択のチェックリスト ---- */
   .listhead{display:flex;justify-content:space-between;align-items:baseline;gap:6px}
@@ -246,7 +251,7 @@
       <section class="panel">
         <h2>期間</h2>
         <div class="seg" id="periodSeg"></div>
-        <div class="navrow" id="periodNav" hidden>
+        <div class="navrow" id="periodNav">
           <button id="periodPrev" title="前の期間へ">‹</button>
           <span id="periodLabel"></span>
           <button id="periodNext" title="次の期間へ">›</button>
@@ -507,7 +512,10 @@ function loadSettings() {
     PAGE_SIZE = Number(o.pageSize) || 50;
     document.getElementById('pageSize').value = String(PAGE_SIZE);
   }
-  if (o.period) period.id = o.period;
+  if (o.period) {
+    var known = PERIODS.some(function (x) { return x.id === o.period; });
+    period.id = known ? o.period : 'all';   /* 廃止したm3/m6が保存されている場合 */
+  }
   if (o.activeDim && DIMS.indexOf(o.activeDim) >= 0) state.activeDim = o.activeDim;
 }
 
@@ -1711,21 +1719,28 @@ function startOfWeek(s) {          /* 月曜はじまり */
 }
 
 var PERIODS = [
-  { id: 'all',   label: '全期間' },
-  { id: 'week',  label: '今週' },
-  { id: 'month', label: '今月' },
-  { id: 'year',  label: '今年' },
-  { id: 'm3',    label: '3ヶ月' },
-  { id: 'm6',    label: '6ヶ月' }
+  { id: 'all',    label: '全期間' },
+  { id: 'week',   label: '今週' },
+  { id: 'month',  label: '今月' },
+  { id: 'year',   label: '今年' },
+  { id: 'custom', label: '期間指定' }
 ];
 var period = { id: 'all', offset: 0 };   /* offset: 0=最新, -1=1つ前 */
 
 function resolvePeriod() {
   var r = dataRange();
-  if (!r.max || period.id === 'all') return { from: '', to: '', label: '全期間' };
+  /* ラベルはボタン名の繰り返しにせず、実際に効いている範囲を出す。
+     全期間ならデータ全体、期間指定なら入力中の範囲。 */
+  if (!r.max) return { from: '', to: '', label: '\u2014' };
+  if (period.id === 'all') {
+    return { from: '', to: '', label: r.min + ' \u301c ' + r.max };
+  }
   if (period.id === 'custom') {
+    var cf = document.getElementById('dateFrom').value || r.min;
+    var ct = document.getElementById('dateTo').value || r.max;
     return { from: document.getElementById('dateFrom').value,
-             to: document.getElementById('dateTo').value, label: '期間指定' };
+             to: document.getElementById('dateTo').value,
+             label: cf + ' \u301c ' + ct };
   }
   var anchor = r.max, off = period.offset;
 
@@ -1741,9 +1756,7 @@ function resolvePeriod() {
     var y = Number(anchor.slice(0, 4)) + off;
     return { from: y + '-01-01', to: y + '-12-31', label: y + '年' };
   }
-  var months = Number(period.id.slice(1));          /* m3 / m6 */
-  var to = shiftMonths(anchor, off * months);
-  return { from: shiftMonths(to, -months), to: to, label: '直近' + months + 'ヶ月' };
+  return { from: '', to: '', label: '全期間' };
 }
 
 function renderPeriodSeg() {
@@ -1751,10 +1764,9 @@ function renderPeriodSeg() {
     return '<button data-p="' + x.id + '"'
       + (period.id === x.id ? ' class="on"' : '') + '>' + x.label + '</button>';
   }).join('');
-  /* 全期間・期間指定では矢印が無効で、ラベルも選択中のボタンと同じ文字になる。
-     行ごと隠して重複表示を無くす。 */
+  /* 行の出し入れをすると選択のたびにサイドバーの高さが変わるので、
+     常に出したまま矢印だけ無効にする。ラベルは実際の範囲なので重複しない。 */
   var fixed = (period.id === 'all' || period.id === 'custom');
-  document.getElementById('periodNav').hidden = fixed;
   document.getElementById('periodPrev').disabled = fixed;
   document.getElementById('periodNext').disabled = fixed || period.offset >= 0;
 }
@@ -1762,12 +1774,12 @@ function renderPeriodSeg() {
 function renderPeriodHint() {
   var r = dataRange();
   var el = document.getElementById('periodHint');
-  /* 基準日の説明は相対期間を選んでいるときだけ意味がある。
-     全期間や日付直接指定のときに出しても読み飛ばされるだけ。 */
-  var relative = (period.id !== 'all' && period.id !== 'custom');
-  el.textContent = r.max
-    ? 'データ全体: ' + r.min + ' 〜 ' + r.max
-      + (relative ? '（基準日はデータ最終日 ' + r.max + '）' : '')
+  /* 文言を状態で変えると行数が変わり、下のセクションが上下に動く。
+     常に同じ1行にして、基準日の説明はナビ行のツールチップへ逃がす。 */
+  el.textContent = r.max ? 'データ全体: ' + r.min + ' \u301c ' + r.max : '';
+  var nav = document.getElementById('periodNav');
+  nav.title = r.max
+    ? '「今週」「今月」「今年」はデータ最終日 ' + r.max + ' が基準です'
     : '';
 }
 
@@ -1787,6 +1799,14 @@ document.getElementById('periodSeg').addEventListener('click', function (e) {
   if (!id) return;
   period.id = id;
   period.offset = 0;
+  if (id === 'custom') {
+    /* 入力欄が空のままだと何を編集すればよいか分からないので、
+       データ全体の範囲を入れておく */
+    var r = dataRange();
+    var f = document.getElementById('dateFrom'), t = document.getElementById('dateTo');
+    if (!f.value) f.value = r.min;
+    if (!t.value) t.value = r.max;
+  }
   saveSettings();
   applyPeriod();
   render();
