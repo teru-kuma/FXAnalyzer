@@ -67,8 +67,7 @@
   .listhead{display:flex;justify-content:space-between;align-items:baseline;gap:6px}
   .listhead a{color:var(--accent);font-size:11px;cursor:pointer;text-decoration:none}
   .listhead a:hover{text-decoration:underline}
-  .listbox{margin-top:6px;border:1px solid var(--line);border-radius:6px;
-           max-height:190px;overflow-y:auto}
+  .listbox{margin-top:6px;border:1px solid var(--line);border-radius:6px}
   .listbox label{display:flex;align-items:center;gap:7px;padding:4px 8px;
                  font-size:12.5px;cursor:pointer;border-bottom:1px solid #f2f4f7}
   .listbox label:last-child{border-bottom:none}
@@ -86,16 +85,33 @@
 
   #chart-container{position:relative;height:400px}
 
-  table{width:100%;border-collapse:collapse;font-size:12.5px}
-  th,td{border-bottom:1px solid var(--line);padding:5px 8px;text-align:left;white-space:nowrap}
-  th{background:#f7f9fc;position:sticky;top:0;font-size:11.5px;color:var(--sub)}
+  table{width:100%;border-collapse:collapse;font-size:12.5px;table-layout:fixed}
+  th,td{border-bottom:1px solid var(--line);padding:5px 8px;text-align:left;
+        white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  th{background:#f7f9fc;position:sticky;top:0;z-index:2;font-size:11.5px;color:var(--sub);
+     box-shadow:inset 0 -1px 0 var(--line)}
+  /* 取引一覧は列が多いので幅を配分して横スクロールを出さない */
+  #tradeTable th:nth-child(1),#tradeTable th:nth-child(2){width:13%}
+  #tradeTable th:nth-child(3){width:8%}
+  #tradeTable th:nth-child(4){width:9%}
+  #tradeTable th:nth-child(5){width:6%}
+  #tradeTable th:nth-child(6){width:13%}
+  #tradeTable th:nth-child(7){width:9%}
+  #tradeTable th:nth-child(8),#tradeTable th:nth-child(9){width:8%}
+  #groupTable th:nth-child(1){width:22%}
+  #groupTable th:nth-child(2),#groupTable th:nth-child(3){width:13%}
+  #mapTable th:nth-child(1){width:12%}
+  #mapTable th:nth-child(2),#mapTable th:nth-child(3){width:20%}
   td.num,th.num{text-align:right}
   th[data-k]{cursor:pointer;user-select:none}
   th[data-k]:hover{color:var(--accent)}
   th[data-k] .arrow{color:var(--accent);font-size:10px;margin-left:3px}
   .positive{color:var(--pos)}
   .negative{color:var(--neg)}
-  .scroll{overflow:auto;max-height:440px;border:1px solid var(--line);border-radius:6px}
+  /* 内側スクロールは持たない。ページのスクロール1本に集約し、
+     見出しは thead を sticky にしてページスクロールに追従させる。
+     （overflow を付けた親があると sticky がその親基準になり効かなくなる） */
+  .tbl{border:1px solid var(--line);border-radius:6px;overflow:hidden}
 
   .banner{padding:10px 12px;border-radius:8px;font-size:12.5px;line-height:1.65}
   .banner.ok{background:#eaf6ee;border:1px solid #bfe3ca}
@@ -107,10 +123,34 @@
   details.card[open] > summary{margin-bottom:10px}
   pre.diag{font-family:Consolas,monospace;font-size:11.5px;line-height:1.55;
            background:#1e242c;color:#d6dde6;padding:12px;border-radius:6px;
-           overflow:auto;max-height:460px}
+           white-space:pre-wrap;word-break:break-all}
   .controls{display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin:8px 0;font-size:12.5px}
   #mapTable input[type=text]{padding:2px 6px;font-size:12.5px;width:100%;min-width:140px}
-  #srcTable td,#srcTable th{font-size:11.5px;padding:3px 6px}
+  #srcTable{table-layout:auto}
+  #srcTable td,#srcTable th{font-size:11.5px;padding:3px 6px;white-space:normal}
+  #srcTable th{position:static}
+
+  /* ---- メインのタブ ---- */
+  .tabs{display:flex;gap:4px;border-bottom:1px solid var(--line);padding-bottom:0}
+  .tabs button{border:1px solid transparent;border-bottom:none;background:none;
+               padding:8px 14px;font-size:13px;border-radius:7px 7px 0 0;color:var(--sub)}
+  .tabs button:hover{background:#eef3fb;color:var(--ink)}
+  .tabs button.on{background:var(--panel);border-color:var(--line);color:var(--ink);
+                  font-weight:600;margin-bottom:-1px}
+  .tabpane{border-radius:0 9px 9px 9px}
+
+  /* ---- ページング ---- */
+  .pager{display:flex;align-items:center;gap:8px;justify-content:flex-end;
+         margin-top:10px;font-size:12.5px;color:var(--sub)}
+  .pager button{padding:3px 10px}
+
+  /* ---- 折りたたみの絞り込みパネル ---- */
+  .side details > summary{cursor:pointer;list-style:none;display:flex;
+                          align-items:baseline;gap:6px;font-size:12px;
+                          letter-spacing:.04em;color:var(--sub);font-weight:700}
+  .side details > summary::-webkit-details-marker{display:none}
+  .side details > summary::before{content:'▸';font-size:10px;color:var(--sub)}
+  .side details[open] > summary::before{content:'▾'}
   .tag{display:inline-block;background:#eef1f6;border-radius:4px;padding:1px 6px;
        font-size:11px;color:#3a4a5f;font-weight:normal}
 </style>
@@ -182,9 +222,16 @@
       <div class="stats" id="stats"></div>
       <div class="card"><div id="chart-container"><canvas id="equityChart"></canvas></div></div>
 
-      <div class="card">
+      <div class="tabs" id="tabs">
+        <button data-tab="group" class="on">集計</button>
+        <button data-tab="trades">取引一覧</button>
+        <button data-tab="map">EA名の対応表</button>
+        <button data-tab="diag">診断</button>
+      </div>
+
+      <section class="card tabpane" data-pane="group">
         <h3>集計 <span id="groupCount" class="tag"></span></h3>
-        <div class="scroll">
+        <div class="tbl">
           <table id="groupTable">
             <thead><tr>
               <th data-k="label">グループ</th><th data-k="magics">マジック</th>
@@ -195,25 +242,30 @@
             </tr></thead><tbody></tbody>
           </table>
         </div>
-      </div>
+      </section>
 
-      <div class="card">
+      <section class="card tabpane" data-pane="trades" hidden>
         <h3>取引一覧 <span id="tradeCount" class="tag"></span></h3>
-        <div class="scroll">
+        <div class="tbl">
           <table id="tradeTable">
             <thead><tr>
               <th data-k="openTime">エントリー</th><th data-k="time">イグジット</th>
               <th data-k="ticket">チケット</th><th data-k="symbol">シンボル</th>
               <th data-k="type">種別</th><th data-k="ea">EA名</th><th data-k="magic">マジック</th>
               <th class="num" data-k="profit">損益</th><th class="num" data-k="pips">pips</th>
-              <th data-k="source">ソース</th><th data-k="raw">Comment(生)</th>
+              <th data-k="source" class="src-col">ソース</th><th data-k="raw">Comment(生)</th>
             </tr></thead><tbody></tbody>
           </table>
         </div>
-      </div>
+        <div class="pager">
+          <button id="pagePrev">‹ 前</button>
+          <span id="pageInfo"></span>
+          <button id="pageNext">次 ›</button>
+        </div>
+      </section>
 
-      <details class="card" id="mapBox">
-        <summary>EA名の対応表（手動指定） <span id="mapCount" class="tag"></span></summary>
+      <section class="card tabpane" data-pane="map" hidden>
+        <h3>EA名の対応表 <span id="mapCount" class="tag"></span></h3>
         <div class="hint">
           マジックごとにEA名を手で指定できます。空欄にすると自動判定に戻ります。
           マジック <code>0</code> は「マジックが取れなかった取引」のまとめ行なので、
@@ -233,7 +285,7 @@
           <input type="text" id="magicPattern" size="24" placeholder="空欄=自動判定">
           <button id="applyPattern">適用</button>
         </div>
-        <div class="scroll">
+        <div class="tbl">
           <table id="mapTable">
             <thead><tr>
               <th>マジック</th><th>自動判定</th><th>EA名（手動指定）</th>
@@ -241,18 +293,19 @@
             </tr></thead><tbody></tbody>
           </table>
         </div>
-      </details>
+      </section>
 
-      <details class="card" id="diagBox">
-        <summary>診断情報（列位置・生セル内容・抽出成功率）</summary>
-    <div class="hint">マジック/EA名がまだ取れない場合は、下の内容をそのまま貼って共有してください。</div>
-    <div style="margin:8px 0">
-      <button id="copyDiag">診断情報をコピー</button>
-      <button id="selfTest">サンプルで動作確認（MT4形式）</button>
-      <button id="selfTest5">サンプルで動作確認（MT5形式）</button>
-    </div>
+      <section class="card tabpane" data-pane="diag" hidden>
+        <h3>診断情報</h3>
+        <div class="hint">マジック/EA名が取れない場合は、下の内容をそのまま貼って共有してください。</div>
+        <div class="controls">
+          <button id="copyDiag">診断情報をコピー</button>
+          <button id="selfTest">サンプルで動作確認（MT4形式）</button>
+          <button id="selfTest5">サンプルで動作確認（MT5形式）</button>
+        </div>
         <pre class="diag" id="diag">ファイル未読込</pre>
-      </details>
+      </section>
+
     </main>
   </div>
 </div>
@@ -295,7 +348,8 @@ var UNKNOWN_EA = '(不明)';   /* 「(不明)」 */
 
 var state = { trades: [], sources: [], diag: null, chart: null,
               pattern: '', overrides: {},
-              sel: {}, known: {}, listQuery: {} };
+              sel: {}, known: {}, listQuery: {}, listOpen: {},
+              page: 0, tab: 'group', lastSig: '' };
 
 /* ------------------------------------------- EA名の手動指定（マジック単位）
    自動判定はどこまで行っても推測なので、最後は手で決められるようにする。
@@ -445,16 +499,17 @@ function renderSources() {
   var rows = state.sources.map(function (s, i) {
     var closed = 0;
     s.trades.forEach(function (t) { if (t.closed) closed++; });
-    return '<tr><td>' + esc(s.label) + '</td><td>' + esc(s.fileName) + '</td>'
-      + '<td>' + esc(s.encoding) + '</td>'
+    /* ファイル名と文字コードは title に逃がして横幅を使わない */
+    return '<tr><td title="' + esc(s.fileName + ' / ' + s.encoding) + '">'
+      + esc(s.label) + '</td>'
       + '<td class="num">' + closed + '</td>'
       + '<td class="num">' + (s.trades.length - closed) + '</td>'
       + '<td><button data-src="' + i + '">外す</button></td></tr>';
   }).join('');
-  el.innerHTML = '<div class="scroll" style="max-height:200px"><table id="srcTable">'
-    + '<thead><tr><th>ソース</th><th>ファイル</th><th>文字コード</th>'
-    + '<th class="num">決済</th><th class="num">未決済</th><th></th></tr></thead>'
-    + '<tbody>' + rows + '</tbody></table></div>';
+  el.innerHTML = '<table id="srcTable">'
+    + '<thead><tr><th>ソース</th><th class="num">決済</th>'
+    + '<th class="num">未決済</th><th></th></tr></thead>'
+    + '<tbody>' + rows + '</tbody></table>';
 }
 
 document.getElementById('sources').addEventListener('click', function (e) {
@@ -1273,9 +1328,15 @@ function renderList(spec) {
     return String(v.value).toLowerCase().indexOf(q) >= 0;
   }) : vals;
 
-  var html = '<div class="listhead"><h2>' + spec.title
-    + ' <span class="tag">' + sel.size + '/' + vals.length + '</span></h2>'
-    + '<span><a data-all="' + spec.key + '">全選択</a> / '
+  /* 既定は閉じておく。開いたリストは高さ制限を付けないので、
+     サイドバー自身のスクロール1本だけで済み、入れ子にならない。 */
+  var opened = !!state.listOpen[spec.key];
+  var html = '<details' + (opened ? ' open' : '') + ' data-panel="' + spec.key + '">'
+    + '<summary><span>' + spec.title + '</span>'
+    + '<span class="tag">' + sel.size + '/' + vals.length + '</span></summary>'
+    + '<div class="listhead" style="margin-top:6px"><span class="hint">'
+    + (sel.size === vals.length ? 'すべて選択中' : (vals.length - sel.size) + ' 件を除外中')
+    + '</span><span><a data-all="' + spec.key + '">全選択</a> / '
     + '<a data-none="' + spec.key + '">解除</a></span></div>';
   if (vals.length > 8) {
     html += '<input type="text" class="filterbox" data-q="' + spec.key
@@ -1286,7 +1347,7 @@ function renderList(spec) {
       + esc(v.value) + '"' + (sel.has(v.value) ? ' checked' : '') + '>'
       + '<span class="nm">' + esc(v.value) + '</span>'
       + '<span class="cnt">' + v.count + '</span></label>';
-  }).join('') + '</div>';
+  }).join('') + '</div></details>';
   el.innerHTML = html;
 }
 
@@ -1294,6 +1355,58 @@ function renderLists() {
   syncSelections();
   LISTS.forEach(renderList);
 }
+
+/* details の開閉を覚える。再描画で閉じてしまうと使い物にならない */
+document.querySelector('.side').addEventListener('toggle', function (e) {
+  var el = e.target;
+  if (el.tagName === 'DETAILS' && el.dataset.panel) {
+    state.listOpen[el.dataset.panel] = el.open;
+  }
+}, true);
+
+/* ------------------------------------------------------------------ タブ
+   集計・取引一覧・対応表・診断を切り替える。
+   4つを縦に並べていたときは、同時に4つのスクロール領域が存在していた。 */
+function showTab(name) {
+  state.tab = name;
+  Array.from(document.querySelectorAll('#tabs button')).forEach(function (b) {
+    b.className = (b.dataset.tab === name) ? 'on' : '';
+  });
+  Array.from(document.querySelectorAll('.tabpane')).forEach(function (p) {
+    p.hidden = (p.dataset.pane !== name);
+  });
+}
+
+document.getElementById('tabs').addEventListener('click', function (e) {
+  var t = e.target.dataset ? e.target.dataset.tab : null;
+  if (t) showTab(t);
+});
+
+/* ------------------------------------------------------- 取引一覧のページング
+   4000件を1つの内側スクロールに詰めるのをやめ、50件ずつ出す。
+   絞り込みが変わったら1ページ目へ戻す。 */
+var PAGE_SIZE = 50;
+
+function filterSignature() {
+  var sel = state.sel;
+  return [
+    document.getElementById('dateFrom').value,
+    document.getElementById('dateTo').value,
+    document.getElementById('inclOpen').checked,
+    LISTS.map(function (spec) {
+      var s2 = sel[spec.key];
+      return spec.key + ':' + (s2 ? Array.from(s2).sort().join(',') : '');
+    }).join('|')
+  ].join('#');
+}
+
+document.getElementById('pagePrev').addEventListener('click', function () {
+  if (state.page > 0) { state.page--; render(); }
+});
+document.getElementById('pageNext').addEventListener('click', function () {
+  state.page++;
+  render();
+});
 
 document.querySelector('.side').addEventListener('change', function (e) {
   var el = e.target;
@@ -1693,20 +1806,41 @@ function render() {
       + '</tr>';
   }).join('') || '<tr><td colspan="10">データなし</td></tr>';
 
-  /* 取引一覧（既定はイグジットの新しい順・最大2000行） */
-  var view = sortRows(trades, 'tradeTable', function (t, k) {
+  /* 取引一覧（既定はイグジットの新しい順）。ページングで50件ずつ */
+  var sig = filterSignature();
+  if (sig !== state.lastSig) { state.page = 0; state.lastSig = sig; }
+  var sorted = sortRows(trades, 'tradeTable', function (t, k) {
     if (k === 'pips') return (typeof t.pips === 'number') ? t.pips : null;
     if (k === 'profit') return t.profit;
     return t[k] == null ? '' : t[k];
-  }).slice(0, 2000);
+  });
+  var pages = Math.max(1, Math.ceil(sorted.length / PAGE_SIZE));
+  if (state.page > pages - 1) state.page = pages - 1;
+  if (state.page < 0) state.page = 0;
+  var from0 = state.page * PAGE_SIZE;
+  var view = sorted.slice(from0, from0 + PAGE_SIZE);
   markSortHeader('tradeTable');
+
+  document.getElementById('pageInfo').textContent = sorted.length
+    ? (from0 + 1) + '-' + Math.min(from0 + PAGE_SIZE, sorted.length)
+      + ' / ' + sorted.length + ' 件（' + (state.page + 1) + ' / ' + pages + 'ページ）'
+    : '0 件';
+  document.getElementById('pagePrev').disabled = (state.page <= 0);
+  document.getElementById('pageNext').disabled = (state.page >= pages - 1);
+
+  /* ソースが1つしかないなら「ソース」列は場所の無駄なので隠す */
+  var multiSrc = state.sources.length > 1;
+  Array.from(document.querySelectorAll('#tradeTable .src-col')).forEach(function (th) {
+    th.hidden = !multiSrc;
+  });
   document.querySelector('#tradeTable tbody').innerHTML = view.map(function (t) {
     var openTag = t.closed ? '' : ' <span class="tag">未決済</span>';
     var rawCell = t.raw ? esc(t.raw) : '<span class="tag">空</span>';
+    var shortT = function (v) { return v ? esc(v.slice(0, 16)) : '-'; };
     return '<tr>'
-      + '<td>' + (esc(t.openTime) || '-') + '</td>'
+      + '<td title="' + esc(t.openTime) + '">' + shortT(t.openTime) + '</td>'
       /* time は未決済だとエントリー時刻で埋めている（並び替え用）ので表示は伏せる */
-      + '<td>' + (t.closed ? esc(t.time) : '-') + '</td>'
+      + '<td title="' + esc(t.time) + '">' + (t.closed ? shortT(t.time) : '-') + '</td>'
       + '<td>' + esc(t.ticket)
         + (t.parts > 1 ? ' <span class="tag">' + t.parts + '分割</span>' : '') + '</td>'
       + '<td>' + esc(t.symbol) + '</td>'
@@ -1716,8 +1850,9 @@ function render() {
       + '<td class="num ' + cls(t.profit) + '">' + fx(t.profit) + '</td>'
       + '<td class="num ' + (typeof t.pips === 'number' ? cls(t.pips) : '') + '">'
         + (typeof t.pips === 'number' ? t.pips.toFixed(1) : '-') + '</td>'
-      + '<td>' + esc(t.source || '-') + '</td>'
-      + '<td>' + rawCell + '</td>'
+      + '<td class="src-col"' + (multiSrc ? '' : ' hidden') + '>'
+        + esc(t.source || '-') + '</td>'
+      + '<td title="' + esc(t.raw) + '">' + rawCell + '</td>'
       + '</tr>';
   }).join('') || '<tr><td colspan="11">データなし</td></tr>';
 }
@@ -1977,7 +2112,7 @@ function runSample(html, name) {
   state.sources = [{ fileName: name, label: label, encoding: 'サンプル（内蔵）',
                      diag: res.diag, trades: res.trades }];
   rebuildFromSources();
-  document.getElementById('diagBox').open = true;
+  showTab('diag');
   return res;
 }
 document.getElementById('selfTest').addEventListener('click', function () {
