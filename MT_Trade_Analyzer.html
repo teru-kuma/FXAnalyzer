@@ -89,8 +89,14 @@
                  font-size:12.5px;cursor:pointer;border-bottom:1px solid #f2f4f7}
   .listbox label:last-child{border-bottom:none}
   .listbox label:hover{background:#f5f8fd}
-  .listbox .cnt{margin-left:auto;color:var(--sub);font-size:11px}
-  .listbox .nm{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .listbox .cnt{color:var(--sub);font-size:11px;min-width:26px;text-align:right}
+  .listbox .nm{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1 1 auto}
+  /* 「のみ」= この値だけを見る。普段は隠しておき、行にカーソルを乗せたら出す */
+  .listbox .only{visibility:hidden;color:var(--accent);font-size:10.5px;
+                 border:1px solid var(--line);border-radius:4px;padding:0 5px;
+                 cursor:pointer;background:#fff;flex:0 0 auto}
+  .listbox label:hover .only{visibility:visible}
+  .listbox .only:hover{background:#eef3fb;border-color:var(--accent)}
   .filterbox{width:100%;margin-top:6px}
 
   /* ---- 統計カード ---- */
@@ -227,10 +233,12 @@
         </select>
         <label class="fieldlabel">集計単位</label>
         <select id="groupBy">
+          <option value="auto">自動（絞り込みに合わせる）</option>
           <option value="total">合計（全体で1行）</option>
           <option value="ea">EA名</option>
           <option value="magic">マジック</option>
           <option value="symbol">シンボル</option>
+          <option value="source">ソース</option>
           <option value="ea_magic">EA名 + マジック</option>
           <option value="ea_symbol">EA名 + シンボル</option>
           <option value="magic_symbol">マジック + シンボル</option>
@@ -1457,10 +1465,17 @@ function renderList(spec) {
     html += '<input type="text" class="filterbox" data-q="' + spec.key
       + '" placeholder="絞り込み" value="' + esc(state.listQuery[spec.key] || '') + '">';
   }
+  /* 「のみ」= この値だけを見る。
+     4つのリストはAND条件なので、例えばマジックを1つに絞っても
+     そのマジックの取引が属するEA名のチェックが外れていれば0件になる。
+     「のみ」は他のリストを全選択に戻してから絞るので、この事故が起きない。 */
   html += '<div class="listbox">' + shown.map(function (v) {
-    return '<label><input type="checkbox" data-sel="' + spec.key + '" value="'
+    return '<label title="' + esc(v.value) + '">'
+      + '<input type="checkbox" data-sel="' + spec.key + '" value="'
       + esc(v.value) + '"' + (sel.has(v.value) ? ' checked' : '') + '>'
       + '<span class="nm">' + esc(v.value) + '</span>'
+      + '<a class="only" data-iso-key="' + spec.key + '" data-iso-val="'
+      + esc(v.value) + '" title="これだけを見る（他の絞り込みは解除）">のみ</a>'
       + '<span class="cnt">' + v.count + '</span></label>';
   }).join('') + '</div></details>';
   el.innerHTML = html;
@@ -1563,8 +1578,31 @@ document.querySelector('.side').addEventListener('input', function (e) {
   }
 });
 
+/* ある値だけを見る。他のリストは全選択に戻す */
+function isolateValue(key, val) {
+  LISTS.forEach(function (spec) {
+    var sel = state.sel[spec.key];
+    if (spec.key === key) {
+      sel.clear();
+      sel.add(val);
+    } else {
+      listValues(spec).forEach(function (v) { sel.add(v.value); });
+    }
+  });
+  state.listQuery[key] = state.listQuery[key] || '';
+  renderLists();
+  render();
+}
+
 document.querySelector('.side').addEventListener('click', function (e) {
   var el = e.target;
+  if (el.dataset && el.dataset.isoKey) {
+    /* label の中の a なので、既定動作のままだとチェックボックスも切り替わる */
+    e.preventDefault();
+    e.stopPropagation();
+    isolateValue(el.dataset.isoKey, el.dataset.isoVal);
+    return;
+  }
   var all = el.dataset ? el.dataset.all : null;
   var none = el.dataset ? el.dataset.none : null;
   if (!all && !none) return;
@@ -1864,13 +1902,48 @@ function markSortHeader(tableId) {
 function groupKeyOf(t, mode) {
   var mg = (t.magic === '0') ? '(マジックなし)' : t.magic;
   var sy = t.symbol || '-';
+  var sc = t.source || '-';
   if (mode === 'total')        return '全体';
   if (mode === 'magic')        return mg;
   if (mode === 'symbol')       return sy;
+  if (mode === 'source')       return sc;
   if (mode === 'ea_magic')     return t.ea + '  @' + mg;
   if (mode === 'ea_symbol')    return t.ea + '  / ' + sy;
   if (mode === 'magic_symbol') return mg + '  / ' + sy;
   return t.ea;
+}
+
+var DIM_LABEL = { ea: 'EA名', magic: 'マジック', symbol: 'シンボル', source: 'ソース' };
+
+/* 絞り込みが効いている（全選択ではない）リストを返す。
+   値が1種類しかないリストは絞りようが無いので対象外。 */
+function narrowedDims() {
+  var out = [];
+  LISTS.forEach(function (spec) {
+    var total = listValues(spec).length;
+    var sel = state.sel[spec.key];
+    if (total > 1 && sel && sel.size < total) out.push(spec.key);
+  });
+  return out;
+}
+
+/* 「自動」のとき、絞り込んだリストをそのまま集計単位にする。
+   マジックだけ絞ったならマジック別、シンボルだけならシンボル別。
+   集計単位をいちいち選び直す手間を無くすため。 */
+function resolveGroupMode() {
+  var chosen = document.getElementById('groupBy').value;
+  if (chosen !== 'auto') return { mode: chosen, auto: false, dims: [] };
+
+  var nd = narrowedDims();
+  if (!nd.length) return { mode: 'ea', auto: true, dims: [] };
+  if (nd.length === 1) return { mode: nd[0], auto: true, dims: nd };
+
+  /* 2つ以上絞られていたら組み合わせる。組み合わせが無い場合は先頭を使う */
+  var order = ['ea', 'magic', 'symbol', 'source'];
+  var picked = order.filter(function (k) { return nd.indexOf(k) >= 0; });
+  var pair = picked.slice(0, 2).join('_');
+  var known = { ea_magic: 1, ea_symbol: 1, magic_symbol: 1 };
+  return { mode: known[pair] ? pair : picked[0], auto: true, dims: picked };
 }
 
 function render() {
@@ -1921,8 +1994,9 @@ function render() {
 
   drawChart(s ? s.equity : [0], s ? s.dates : ['']);
 
-  /* 集計単位でグループ化 */
-  var mode = document.getElementById('groupBy').value;
+  /* 集計単位でグループ化（自動のときは絞り込みから決める） */
+  var gm = resolveGroupMode();
+  var mode = gm.mode;
   var groups = new Map();
   for (var i = 0; i < trades.length; i++) {
     var t = trades[i];
@@ -1962,8 +2036,19 @@ function render() {
   var u = isPips ? 'pips' : '金額';
   document.getElementById('thMaxDD').firstChild.nodeValue = isPips ? '最大DD(pips)' : '最大DD';
   document.getElementById('thAvg').firstChild.nodeValue = isPips ? '平均(pips)' : '平均';
+
+  var MODE_LABEL = {
+    total: '合計', ea: 'EA名', magic: 'マジック', symbol: 'シンボル', source: 'ソース',
+    ea_magic: 'EA名 + マジック', ea_symbol: 'EA名 + シンボル',
+    magic_symbol: 'マジック + シンボル'
+  };
   document.getElementById('groupNote').textContent =
-    '取引数・勝率・PF・最大DD・平均は表示単位「' + u + '」で計算しています'
+    (gm.auto
+      ? '自動: ' + (MODE_LABEL[mode] || mode) + ' で集計中'
+        + (gm.dims.length ? '（' + gm.dims.map(function (k) { return DIM_LABEL[k]; }).join('・')
+                            + ' を絞り込んでいるため）' : '（絞り込みなしのため既定のEA名）')
+      : '集計単位: ' + (MODE_LABEL[mode] || mode))
+    + '　／　取引数・勝率・PF・最大DD・平均は表示単位「' + u + '」で計算'
     + (isPips ? '（pipsを算出できない取引は除外）' : '');
 
   document.querySelector('#groupTable tbody').innerHTML = rows.map(function (g) {
