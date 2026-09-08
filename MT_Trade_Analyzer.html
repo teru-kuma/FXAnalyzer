@@ -73,6 +73,8 @@
     <label>マジック</label><select id="magicSelect"><option value="all">すべて</option></select>
     <label>シンボル</label><select id="symbolSelect"><option value="all">すべて</option></select>
     <label><input type="checkbox" id="inclOpen"> 未決済も含む</label>
+    <label><input type="checkbox" id="mergePartial" checked> 分割決済をまとめる</label>
+    <label><input type="checkbox" id="mergeSameTime"> 同時刻の一括決済もまとめる</label>
   </div>
 
   <div class="controls">
@@ -326,6 +328,8 @@ function rebuildFromSources() {
   var all = [];
   state.sources.forEach(function (s) { all = all.concat(s.trades); });
   all.sort(function (a, b) { return a.time.localeCompare(b.time); });
+  all = aggregateTrades(all);
+  all.sort(function (a, b) { return a.time.localeCompare(b.time); });
   state.trades = all;
   state.diag = state.sources.length ? state.sources[0].diag : null;
 
@@ -511,6 +515,7 @@ function parseReport(html) {
         openTime:  findCol(texts, ['open time','time']),
         type:      findCol(texts, ['type']),
         symbol:    findCol(texts, ['item','symbol']),
+        lots:      findCol(texts, ['size','volume','lots']),
         closeTime: findCol(texts, ['close time']),
         profit:    findCol(texts, ['profit']),
         comment:   findCol(texts, ['comment','remark'])
@@ -595,6 +600,7 @@ function parseReport(html) {
       key: ticket || String(r), ticket: ticket, type: type, symbol: symbol,
       magic: magic, ea: ea, profit: profit, raw: raw, flags: cc.flags,
       closed: closed, time: time, openTime: openTime,
+      lots: parseNum(pick('lots')),
       pips: closed ? calcPips(type, pick('openPrice'), pick('closePrice')) : null
     });
 
@@ -636,6 +642,7 @@ function parseDelimited(text) {
     openPrice:  findCol(head, ['open price','openprice']),
     closePrice: findCol(head, ['close price','closeprice']),
     symbol:   findCol(head, ['symbol','item']),
+    lots:     findCol(head, ['lots','size','volume']),
     type:     findCol(head, ['type','cmd']),
     magic:    findCol(head, ['magic','magicnumber','magic number']),
     profit:   findCol(head, ['profit','netprofit','pl']),
@@ -682,6 +689,7 @@ function parseDelimited(text) {
       symbol: symbol, magic: magic, ea: ea, profit: profit, raw: raw, flags: cc.flags,
       closed: isClosed, time: normTime(closeStr || openStr),
       openTime: normTime(openStr),
+      lots: parseNum(idx.lots >= 0 ? c[idx.lots] : ''),
       pips: isClosed ? calcPips(
         (idx.type >= 0 ? c[idx.type] : ''),
         idx.openPrice >= 0 ? c[idx.openPrice] : '',
@@ -797,6 +805,76 @@ function extractEA(clean, magic, symbol) {
   s = stripNumericTokens(s);
   s = s.replace(/^[\s\-_|,;:#]+/, '').replace(/[\s\-_|,;:#]+$/, '').replace(/\s+/g, ' ').trim();
   return s || UNKNOWN_EA;
+}
+
+/* ------------------------------------------------- 分割決済・同時刻決済の集約
+   MT5は1ポジションを分割決済すると決済ディールが複数行になり、
+   ExportHistoryTSV はそれをそのまま出す（ticket = DEAL_POSITION_ID が同じ）。
+   まとめないとエクイティカーブが細かく刻まれ、取引数も実態より多く出る。
+
+   さらにグリッド系・ナンピン系のEAは複数ポジションを同時刻に一括決済するため、
+   それも1トレードとして見たい場合がある（こちらは任意）。
+
+   元データ（source.trades）は壊さず、結合時に新しいオブジェクトを作る。
+   チェックを外せば元の粒度に戻る。 */
+function mergeTradesBy(list, keyFn) {
+  var map = new Map(), out = [];
+  for (var i = 0; i < list.length; i++) {
+    var t = list[i];
+    var k = keyFn(t);
+    if (k === null) { out.push(t); continue; }
+    if (!map.has(k)) {
+      var c = {};
+      for (var p in t) if (Object.prototype.hasOwnProperty.call(t, p)) c[p] = t[p];
+      c.parts = t.parts || 1;   /* 2段階まとめるので既存の分割数を引き継ぐ */
+      c.lots = isFinite(t.lots) ? t.lots : 0;
+      c.pipsLots = (typeof t.pips === 'number') ? (isFinite(t.lots) ? t.lots : 1) : 0;
+      c.pipsSum = (typeof t.pips === 'number') ? t.pips * (c.pipsLots || 1) : 0;
+      map.set(k, c);
+      out.push(c);
+      continue;
+    }
+    var g = map.get(k);
+    g.parts += (t.parts || 1);
+    g.profit += t.profit;
+    if (isFinite(t.lots)) g.lots += t.lots;
+    if (typeof t.pips === 'number') {
+      var wt = isFinite(t.lots) ? t.lots : 1;
+      g.pipsLots += wt;
+      g.pipsSum += t.pips * wt;
+    }
+    /* エントリーは最も早い時刻、イグジットは最も遅い時刻を採る */
+    if (t.openTime && (!g.openTime || t.openTime < g.openTime)) g.openTime = t.openTime;
+    if (t.time > g.time) g.time = t.time;
+    if (t.closed) g.closed = true;
+    if (!g.raw && t.raw) g.raw = t.raw;
+  }
+  /* 数量加重平均でpipsを出し直す */
+  map.forEach(function (g) {
+    if (g.parts > 1) {
+      g.pips = g.pipsLots > 0 ? Math.round(g.pipsSum / g.pipsLots * 10) / 10 : null;
+    }
+    delete g.pipsLots;
+    delete g.pipsSum;
+  });
+  return out;
+}
+
+function aggregateTrades(list) {
+  var byTicket = document.getElementById('mergePartial').checked;
+  var bySameTime = document.getElementById('mergeSameTime').checked;
+  var out = list;
+  if (byTicket) {
+    out = mergeTradesBy(out, function (t) {
+      return t.ticket ? 'T|' + (t.source || '') + '|' + t.ticket : null;
+    });
+  }
+  if (bySameTime) {
+    out = mergeTradesBy(out, function (t) {
+      return t.closed ? 'S|' + (t.source || '') + '|' + t.magic + '|' + t.time : null;
+    });
+  }
+  return out;
 }
 
 /* --------------------------------------- EA名をマジック単位でまとめ直す
@@ -1309,7 +1387,8 @@ function render() {
       + '<td>' + (esc(t.openTime) || '-') + '</td>'
       /* time は未決済だとエントリー時刻で埋めている（並び替え用）ので表示は伏せる */
       + '<td>' + (t.closed ? esc(t.time) : '-') + '</td>'
-      + '<td>' + esc(t.ticket) + '</td>'
+      + '<td>' + esc(t.ticket)
+        + (t.parts > 1 ? ' <span class="tag">' + t.parts + '分割</span>' : '') + '</td>'
       + '<td>' + esc(t.symbol) + '</td>'
       + '<td>' + esc(t.type) + openTag + '</td>'
       + '<td>' + esc(t.ea) + '</td>'
@@ -1665,6 +1744,13 @@ document.getElementById('periodReset').addEventListener('click', function () {
 document.getElementById('autoMerge').addEventListener('change', function () {
   if (!state.diag) return;
   refreshIdentity();
+});
+
+/* 集約は結合のやり直しが必要（元データから作り直す） */
+['mergePartial','mergeSameTime'].forEach(function (id) {
+  document.getElementById(id).addEventListener('change', function () {
+    if (state.sources.length) rebuildFromSources();
+  });
 });
 document.getElementById('reload').addEventListener('click', render);
 document.getElementById('applyPattern').addEventListener('click', function () {
