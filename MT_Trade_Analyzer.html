@@ -70,6 +70,7 @@
   .fieldlabel{display:block;font-size:11.5px;color:var(--sub);margin:8px 0 3px}
   .chk{display:flex;align-items:center;gap:6px;font-size:12.5px;margin-top:7px;cursor:pointer}
   .row2{display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-top:8px}
+  .period-slot .row2{margin-top:0}
   /* input[type=date] は固有の最小幅を持つため、min-width:0 を入れないと
      グリッドの列幅に収まらずサイドバーに横スクロールが出る */
   .row2 > *{min-width:0}
@@ -88,6 +89,9 @@
   .seg button{padding:5px 2px;font-size:11.5px;white-space:nowrap}
   .seg button:last-child{grid-column:1 / -1}
   .seg button.on{background:var(--ink);color:#fff;border-color:var(--ink)}
+  /* 中身が入れ替わっても高さが動かないよう枠の高さを固定する */
+  .period-slot{margin-top:8px;height:30px;position:relative}
+  .period-slot > *{position:absolute;inset:0;margin-top:0}
   .navrow{display:flex;align-items:center;gap:6px;margin-top:8px}
   .navrow button{width:30px;padding:3px 0;font-size:15px;line-height:1}
   .navrow span{flex:1;text-align:center;font-size:11.5px;font-weight:600;
@@ -251,16 +255,19 @@
       <section class="panel">
         <h2>期間</h2>
         <div class="seg" id="periodSeg"></div>
-        <div class="navrow" id="periodNav">
-          <button id="periodPrev" title="前の期間へ">‹</button>
-          <span id="periodLabel"></span>
-          <button id="periodNext" title="次の期間へ">›</button>
+        <!-- ナビ行と日付欄は同じ枠を共有する。両方出すと同じ日付が
+             2箇所に並び、片方を消すと高さが変わってしまうため。 -->
+        <div class="period-slot">
+          <div class="navrow" id="periodNav">
+            <button id="periodPrev" title="前の期間へ">‹</button>
+            <span id="periodLabel"></span>
+            <button id="periodNext" title="次の期間へ">›</button>
+          </div>
+          <div class="row2" id="periodCustom" hidden>
+            <input type="date" id="dateFrom">
+            <input type="date" id="dateTo">
+          </div>
         </div>
-        <div class="row2">
-          <input type="date" id="dateFrom">
-          <input type="date" id="dateTo">
-        </div>
-        <div class="hint" id="periodHint"></div>
       </section>
 
       <section class="panel">
@@ -531,10 +538,21 @@ function applyOverrides(trades) {
     }
   }
 }
+/* 要素が消えていてもここで throw させない。
+   直接 getElementById(...).addEventListener(...) と書くと、
+   後から要素を削ったときに例外で以降の起動処理ごと止まる。
+   実際 #reload の消し忘れで、期間ボタンの描画・設定の復元・
+   手動EA名の読み込みが丸ごと動かなくなっていた。 */
+function on(id, ev, fn) {
+  var el = document.getElementById(id);
+  if (!el) { console.warn('要素が見つかりません: #' + id); return; }
+  el.addEventListener(ev, fn);
+}
+
 
 /* ---------------------------------------------------------- ファイル読み込み */
 var drop = document.getElementById('drop');
-document.getElementById('fileInput').addEventListener('change', function (e) {
+on('fileInput', 'change', function (e) {
   if (e.target.files.length) loadFiles(Array.from(e.target.files));
   e.target.value = '';   /* 同じファイルを選び直せるようにする */
 });
@@ -650,10 +668,12 @@ function renderHeadMeta() {
   state.trades.forEach(function (t) {
     mg[t.magic] = 1; sy[t.symbol || '-'] = 1; ea[t.ea] = 1;
   });
+  var r = dataRange();
   el.textContent = nf(state.trades.length, 0) + ' 件 ・ '
     + Object.keys(ea).length + ' EA ・ '
     + Object.keys(mg).length + ' マジック ・ '
-    + Object.keys(sy).length + ' シンボル';
+    + Object.keys(sy).length + ' シンボル'
+    + (r.max ? ' ・ ' + r.min + ' 〜 ' + r.max : '');
 }
 
 function renderSources() {
@@ -675,7 +695,7 @@ function renderSources() {
     + '<tbody>' + rows + '</tbody></table>';
 }
 
-document.getElementById('clearAll').addEventListener('click', function () {
+on('clearAll', 'click', function () {
   if (!state.sources.length) return;
   if (!confirm('読み込み済みの ' + state.sources.length
       + ' ファイル（' + state.trades.length + ' 件）をすべて外します。よろしいですか？')) return;
@@ -685,7 +705,7 @@ document.getElementById('clearAll').addEventListener('click', function () {
   rebuildFromSources();
 });
 
-document.getElementById('sources').addEventListener('click', function (e) {
+on('sources', 'click', function (e) {
   var el = e.target;
   if (!el || !el.dataset || el.dataset.src === undefined) return;
   state.sources.splice(Number(el.dataset.src), 1);
@@ -1441,7 +1461,7 @@ function renderDiag() {
   document.getElementById('diag').textContent = L.join('\n');
 }
 
-document.getElementById('copyDiag').addEventListener('click', function () {
+on('copyDiag', 'click', function () {
   navigator.clipboard.writeText(document.getElementById('diag').textContent).then(
     function () { alert('診断情報をコピーしました'); },
     function () { alert('コピーできませんでした（手動で選択してください）'); }
@@ -1563,7 +1583,7 @@ function showTab(name) {
   });
 }
 
-document.getElementById('tabs').addEventListener('click', function (e) {
+on('tabs', 'click', function (e) {
   var t = e.target.dataset ? e.target.dataset.tab : null;
   if (t) showTab(t);
 });
@@ -1590,24 +1610,24 @@ function filterSignature() {
   ].join('#');
 }
 
-document.getElementById('pageFirst').addEventListener('click', function () {
+on('pageFirst', 'click', function () {
   state.page = 0; render();
 });
-document.getElementById('pagePrev').addEventListener('click', function () {
+on('pagePrev', 'click', function () {
   if (state.page > 0) { state.page--; render(); }
 });
-document.getElementById('pageNext').addEventListener('click', function () {
+on('pageNext', 'click', function () {
   state.page++; render();
 });
-document.getElementById('pageLast').addEventListener('click', function () {
+on('pageLast', 'click', function () {
   state.page = 1e9;   /* render 側で最終ページに丸められる */
   render();
 });
-document.getElementById('pageJump').addEventListener('change', function () {
+on('pageJump', 'change', function () {
   var v = parseInt(this.value, 10);
   if (isFinite(v)) { state.page = Math.max(0, v - 1); render(); }
 });
-document.getElementById('pageSize').addEventListener('change', function () {
+on('pageSize', 'change', function () {
   PAGE_SIZE = Number(this.value) || 50;
   state.page = 0;
   saveSettings();
@@ -1733,14 +1753,12 @@ function resolvePeriod() {
      全期間ならデータ全体、期間指定なら入力中の範囲。 */
   if (!r.max) return { from: '', to: '', label: '\u2014' };
   if (period.id === 'all') {
-    return { from: '', to: '', label: r.min + ' \u301c ' + r.max };
+    return { from: '', to: '', label: r.min + ' 〜 ' + r.max };
   }
   if (period.id === 'custom') {
-    var cf = document.getElementById('dateFrom').value || r.min;
-    var ct = document.getElementById('dateTo').value || r.max;
+    /* 期間指定ではナビ行を出さないのでラベルは使わない */
     return { from: document.getElementById('dateFrom').value,
-             to: document.getElementById('dateTo').value,
-             label: cf + ' \u301c ' + ct };
+             to: document.getElementById('dateTo').value, label: '' };
   }
   var anchor = r.max, off = period.offset;
 
@@ -1764,21 +1782,23 @@ function renderPeriodSeg() {
     return '<button data-p="' + x.id + '"'
       + (period.id === x.id ? ' class="on"' : '') + '>' + x.label + '</button>';
   }).join('');
-  /* 行の出し入れをすると選択のたびにサイドバーの高さが変わるので、
-     常に出したまま矢印だけ無効にする。ラベルは実際の範囲なので重複しない。 */
+  /* 期間指定のときだけ日付欄を出す。それ以外はナビ行。
+     枠の高さは固定なので、切り替えてもサイドバーは動かない。 */
+  var custom = (period.id === 'custom');
+  document.getElementById('periodNav').hidden = custom;
+  document.getElementById('periodCustom').hidden = !custom;
+
   var fixed = (period.id === 'all' || period.id === 'custom');
   document.getElementById('periodPrev').disabled = fixed;
   document.getElementById('periodNext').disabled = fixed || period.offset >= 0;
 }
 
+/* データ全体の範囲は見出し下のメタ行が持たせている。期間パネルにも出すと、
+   全期間を選んだときナビ行と同じ日付が2箇所に並ぶため。
+   基準日の説明だけをナビ行のツールチップに残す。 */
 function renderPeriodHint() {
   var r = dataRange();
-  var el = document.getElementById('periodHint');
-  /* 文言を状態で変えると行数が変わり、下のセクションが上下に動く。
-     常に同じ1行にして、基準日の説明はナビ行のツールチップへ逃がす。 */
-  el.textContent = r.max ? 'データ全体: ' + r.min + ' \u301c ' + r.max : '';
-  var nav = document.getElementById('periodNav');
-  nav.title = r.max
+  document.getElementById('periodNav').title = r.max
     ? '「今週」「今月」「今年」はデータ最終日 ' + r.max + ' が基準です'
     : '';
 }
@@ -1794,7 +1814,7 @@ function applyPeriod() {
   renderPeriodHint();
 }
 
-document.getElementById('periodSeg').addEventListener('click', function (e) {
+on('periodSeg', 'click', function (e) {
   var id = e.target.dataset ? e.target.dataset.p : null;
   if (!id) return;
   period.id = id;
@@ -1811,12 +1831,12 @@ document.getElementById('periodSeg').addEventListener('click', function (e) {
   applyPeriod();
   render();
 });
-document.getElementById('periodPrev').addEventListener('click', function () {
+on('periodPrev', 'click', function () {
   period.offset--;
   applyPeriod();
   render();
 });
-document.getElementById('periodNext').addEventListener('click', function () {
+on('periodNext', 'click', function () {
   if (period.offset < 0) period.offset++;
   applyPeriod();
   render();
@@ -1968,7 +1988,7 @@ function renderCrumbs() {
   el.innerHTML = html;
 }
 
-document.getElementById('crumbs').addEventListener('click', function (e) {
+on('crumbs', 'click', function (e) {
   var n = e.target.dataset ? e.target.dataset.crumb : null;
   if (n === null || n === undefined) return;
   drillTo(Number(n));
@@ -2353,7 +2373,7 @@ document.querySelector('#mapTable tbody').addEventListener('change', function (e
   refreshIdentity();
 });
 
-document.getElementById('mapExport').addEventListener('click', function () {
+on('mapExport', 'click', function () {
   var n = Object.keys(state.overrides).length;
   if (!n) { alert('手動指定がまだありません。'); return; }
   var blob = new Blob([JSON.stringify(state.overrides, null, 2)],
@@ -2369,7 +2389,7 @@ document.getElementById('mapExport').addEventListener('click', function () {
   setMapStatus('書き出しました（' + n + ' 件）');
 });
 
-document.getElementById('mapImport').addEventListener('change', function (e) {
+on('mapImport', 'change', function (e) {
   var f = e.target.files[0];
   if (!f) return;
   var fr = new FileReader();
@@ -2391,7 +2411,7 @@ document.getElementById('mapImport').addEventListener('change', function (e) {
   e.target.value = '';
 });
 
-document.getElementById('mapClear').addEventListener('click', function () {
+on('mapClear', 'click', function () {
   var n = Object.keys(state.overrides).length;
   if (!n) { setMapStatus('手動指定はありません'); return; }
   if (!confirm('手動指定 ' + n + ' 件をすべて消去します。よろしいですか？')) return;
@@ -2437,7 +2457,7 @@ function stamp() {
     + String(d.getDate()).padStart(2, '0');
 }
 
-document.getElementById('csvTrades').addEventListener('click', function () {
+on('csvTrades', 'click', function () {
   var rows = state.csvRows || [];
   if (!rows.length) { alert('書き出す取引がありません。'); return; }
   downloadText(toCsv(rows,
@@ -2452,7 +2472,7 @@ document.getElementById('csvTrades').addEventListener('click', function () {
     }), 'trades_' + stamp() + '.csv');
 });
 
-document.getElementById('csvGroups').addEventListener('click', function () {
+on('csvGroups', 'click', function () {
   var rows = state.csvGroups || [];
   if (!rows.length) { alert('書き出す集計がありません。'); return; }
   downloadText(toCsv(rows,
@@ -2679,7 +2699,7 @@ function runSelfCheck() {
 
 
 
-document.getElementById('autoMerge').addEventListener('change', function () {
+on('autoMerge', 'change', function () {
   saveSettings();
   if (!state.diag) return;
   refreshIdentity();
@@ -2692,8 +2712,7 @@ document.getElementById('autoMerge').addEventListener('change', function () {
     if (state.sources.length) rebuildFromSources();
   });
 });
-document.getElementById('reload').addEventListener('click', render);
-document.getElementById('applyPattern').addEventListener('click', function () {
+on('applyPattern', 'click', function () {
   state.pattern = document.getElementById('magicPattern').value.trim();
   if (!state.diag) { alert('先にファイルを読み込んでください'); return; }
   var c = state.diag.counts;
