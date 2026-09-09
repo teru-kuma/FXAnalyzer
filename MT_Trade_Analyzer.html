@@ -23,6 +23,14 @@
   .page{max-width:1500px;margin:0 auto;padding:14px 18px;height:100%;
         display:flex;flex-direction:column}
   .page-head{margin-bottom:12px;flex:0 0 auto}
+  .head-row{display:flex;align-items:flex-start;gap:12px}
+  .head-left{flex:1 1 auto;min-width:0}
+  /* 注意書きの開閉ボタン。件数を出して中身があることを示す */
+  .notice-chip{flex:0 0 auto;background:var(--warnbg);border:1px solid #e8cf94;
+               color:var(--warn);border-radius:999px;padding:5px 12px;font-size:12px;
+               cursor:pointer;white-space:nowrap}
+  .notice-chip:hover{background:#fdf0d0;border-color:#dcbb72}
+  #noticeBody{margin-top:8px}
   h1{margin:0 0 2px;font-size:21px}
   .ver{font-size:12px;color:var(--sub);font-weight:normal}
   h2{margin:0 0 8px;font-size:12px;letter-spacing:.04em;color:var(--sub);
@@ -45,7 +53,7 @@
         padding-right:4px;padding-bottom:24px}
   #results{display:flex;flex-direction:column;gap:14px;min-height:0}
   /* 空の要素が gap の分だけ場所を取り、左右で開始位置がずれるのを防ぐ */
-  #banner:empty,.stats:empty{display:none}
+  .stats:empty{display:none}
 
   @media (max-width:980px){
     html,body{height:auto}
@@ -232,8 +240,16 @@
 <body>
 <div class="page">
   <header class="page-head">
-    <h1>MT4 / MT5 Trade Analyzer <span class="ver">v0.8</span></h1>
-    <div class="hint" id="headMeta">完全クライアントサイド動作（読み込んだデータは外部へ送信されません）</div>
+    <div class="head-row">
+      <div class="head-left">
+        <h1>MT4 / MT5 Trade Analyzer <span class="ver">v0.8</span></h1>
+        <div class="hint" id="headMeta">完全クライアントサイド動作（読み込んだデータは外部へ送信されません）</div>
+      </div>
+      <!-- 注意書きは既定で畳んでおく。常時展開しておくと
+           グラフや数値が画面のずっと下へ押し下げられるため。 -->
+      <button class="notice-chip" id="noticeChip" hidden aria-expanded="false"></button>
+    </div>
+    <div class="banner warn" id="noticeBody" hidden></div>
   </header>
 
   <div class="layout">
@@ -290,8 +306,6 @@
 
     <!-- ============ 右メイン: 結果 ============ -->
     <main class="main">
-      <div id="banner"></div>
-
       <div class="card" id="emptyState">
         <h3>ファイルを読み込んでください</h3>
         <div class="hint">
@@ -651,7 +665,7 @@ function rebuildFromSources() {
   renderLists();
   renderCrumbs();
   applyPeriod();   /* ファイルを足すとデータ範囲が変わるので引き直す */
-  renderBanner();
+  renderNotices();
   renderDiag();
   renderMapTable();
   render();
@@ -669,11 +683,28 @@ function renderHeadMeta() {
     mg[t.magic] = 1; sy[t.symbol || '-'] = 1; ea[t.ea] = 1;
   });
   var r = dataRange();
-  el.textContent = nf(state.trades.length, 0) + ' 件 ・ '
-    + Object.keys(ea).length + ' EA ・ '
-    + Object.keys(mg).length + ' マジック ・ '
-    + Object.keys(sy).length + ' シンボル'
-    + (r.max ? ' ・ ' + r.min + ' 〜 ' + r.max : '');
+  var tot = sourceTotals();
+
+  /* 読み込み結果の要約はここに集約する。以前はメインの先頭に緑の帯として
+     置いていたが、注意書きと合わせて3段になり、グラフと数値がその分だけ
+     下へ追いやられていた。 */
+  var parts = [];
+  parts.push(state.sources.length + ' ファイル');
+  parts.push(nf(state.trades.length, 0) + ' 件');
+  if (tot.open) parts.push('未決済 ' + nf(tot.open, 0) + ' 件');
+  if (tot.balance) parts.push('入出金 ' + nf(tot.balance, 0) + ' 件');
+  parts.push(Object.keys(ea).length + ' EA');
+  parts.push(Object.keys(mg).length + ' マジック');
+  parts.push(Object.keys(sy).length + ' シンボル');
+  if (r.max) parts.push(r.min + ' 〜 ' + r.max);
+
+  /* 取得率は100%なら書かない。取れなかった件数だけを出すほうが
+     何をすればよいか分かる。 */
+  var noMagic = tot.data - tot.magicOk, noEa = tot.data - tot.eaOk;
+  if (noMagic > 0) parts.push('マジック未取得 ' + nf(noMagic, 0) + ' 件');
+  if (noEa > 0) parts.push('EA名未取得 ' + nf(noEa, 0) + ' 件');
+
+  el.textContent = parts.join(' ・ ');
 }
 
 function renderSources() {
@@ -1337,42 +1368,48 @@ function buildWarnings(diag) {
   }
 }
 
-function renderBanner() {
-  var b = document.getElementById('banner');
-  if (!state.sources.length) { b.innerHTML = ''; return; }
-
-  /* 複数ソースを合算した数字を出す */
+/* 全ソースの合算件数 */
+function sourceTotals() {
   var tot = { data: 0, closed: 0, open: 0, balance: 0, magicOk: 0, eaOk: 0 };
   state.sources.forEach(function (s) {
     var c = s.diag.counts;
     tot.data += c.data; tot.closed += c.closed; tot.open += c.open;
     tot.balance += c.balance; tot.magicOk += c.magicOk; tot.eaOk += c.eaOk;
   });
-  var rate = tot.data ? Math.round(tot.magicOk / tot.data * 100) : 0;
-  var kind = rate >= 80 ? 'ok' : (rate > 0 ? 'info' : 'warn');
-  var head = state.sources.length === 1
-    ? '<b>' + esc(state.sources[0].fileName) + '</b>（' + esc(state.sources[0].encoding) + '）'
-    : '<b>' + state.sources.length + ' ファイル</b>を合算';
+  return tot;
+}
 
-  var html = '<div class="banner ' + kind + '">'
-    + head + ' / 決済 ' + tot.closed + ' 件 ・ 未決済 ' + tot.open
-    + ' 件 ・ 入出金 ' + tot.balance + ' 件<br>'
-    + 'マジック取得 <b>' + tot.magicOk + ' / ' + tot.data + '</b>（' + rate + '%）'
-    + ' ・ EA名取得 <b>' + tot.eaOk + ' / ' + tot.data + '</b>'
-    + '</div>';
+/* 注意書きはヘッダー右のボタンに畳んでおき、押したときだけ開く。
+   件数を出しておくので、畳んだままでも中身があることは分かる。 */
+function renderNotices() {
+  var chip = document.getElementById('noticeChip');
+  var body = document.getElementById('noticeBody');
+  var notes = [];
 
   if (state.sources.length > 1) {
-    html += '<div class="banner info">複数口座を合算しています。'
-      + '口座通貨が違う場合、金額の合計には意味がありません。'
-      + '表示単位を pips にするか、ソースで絞り込んでください。</div>';
+    notes.push('複数口座を合算しています。口座通貨が違う場合、金額の合計には'
+      + '意味がありません。表示単位を pips にするか、ソースで絞り込んでください。');
   }
   if (state.diag && state.diag.warnings.length) {
-    html += '<div class="banner warn">' + state.diag.warnings.map(function (w) {
-      return '・' + esc(w);
-    }).join('<br>') + '</div>';
+    state.diag.warnings.forEach(function (w) { notes.push(w); });
   }
-  b.innerHTML = html;
+
+  if (!notes.length) {
+    chip.hidden = true;
+    body.hidden = true;
+    body.innerHTML = '';
+    return;
+  }
+  chip.hidden = false;
+  chip.textContent = '⚠ 注意 ' + notes.length + ' 件';
+  body.innerHTML = notes.map(function (w) { return '・' + esc(w); }).join('<br>');
 }
+
+on('noticeChip', 'click', function () {
+  var body = document.getElementById('noticeBody');
+  body.hidden = !body.hidden;
+  this.setAttribute('aria-expanded', String(!body.hidden));
+});
 
 function renderDiag() {
   var d = state.diag;
@@ -2356,7 +2393,7 @@ function refreshIdentity() {
   state.sources.forEach(function (s) { countEaOk(s.trades, s.diag); });
   buildWarnings(state.diag);
   renderLists();
-  renderBanner();
+  renderNotices();
   renderDiag();
   renderMapTable();
   render();
