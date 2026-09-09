@@ -55,14 +55,12 @@
   /* 空の要素が gap の分だけ場所を取り、左右で開始位置がずれるのを防ぐ */
   .stats:empty{display:none}
 
-  @media (max-width:980px){
-    html,body{height:auto}
-    body{overflow:auto}
-    .page{height:auto;display:block}
-    .layout{grid-template-columns:1fr;display:block}
-    .side,.main{overflow:visible;min-height:0;display:block}
-    .side > *,.main > *{margin-bottom:12px}
-  }
+  /* 横スクロールできることは見た目から分からないので一言添える。
+     広い画面では不要なので隠しておく（メディアクエリより前に置くこと。
+     後ろに書くと display:none が勝って狭い画面でも出なくなる）。 */
+  .scrollnote{display:none;font-size:11px;color:var(--sub);margin-bottom:5px}
+
+
 
   .panel,.card{background:var(--panel);border:1px solid var(--line);border-radius:9px;
                padding:12px 13px}
@@ -235,6 +233,34 @@
   .side .tag.act{background:var(--accent);color:#fff}
   .tag{display:inline-block;background:#eef1f6;border-radius:4px;padding:1px 6px;
        font-size:11px;color:#3a4a5f;font-weight:normal}
+  /* ------------------------------------------------------------------
+     狭い画面向けの上書き。基底ルールより後ろに置くこと。
+     同じ詳細度なら後に書いたほうが勝つので、途中に置くと
+     あとから追加した基底ルールに負けて効かなくなる。 */
+  @media (max-width:980px){
+    html,body{height:auto}
+    body{overflow:auto}
+    .page{height:auto;display:block}
+    .layout{grid-template-columns:1fr;display:block}
+    .side,.main{overflow:visible;min-height:0;display:block}
+    .side > *,.main > *{margin-bottom:12px}
+
+    /* 表は列数が多く、画面幅に押し込むと全列が「…」になって読めない。
+       最低幅を持たせて横スクロールに逃がす。
+       表の中だけが横に動き、ページ自体は横スクロールしない。 */
+    .tbl{overflow-x:auto;-webkit-overflow-scrolling:touch}
+    #tradeTable{min-width:820px}
+    #groupTable{min-width:760px}
+    #mapTable{min-width:700px}
+    #srcTable{min-width:0}
+    .scrollnote{display:block}
+
+    /* 指が触れる要素を押しやすい大きさにする */
+    .listbox label{padding:8px 9px}
+    .seg button{padding:8px 2px}
+    .navrow button{padding:7px 0}
+    .tabs button{padding:9px 12px}
+  }
 </style>
 </head>
 <body>
@@ -331,6 +357,7 @@
         <h3>集計 <span id="groupCount" class="tag"></span>
           <button id="csvGroups" style="float:right">CSVで書き出し</button></h3>
         <div class="hint" id="groupNote"></div>
+        <div class="scrollnote">表は横にスクロールできます</div>
         <div class="tbl">
           <table id="groupTable">
             <thead><tr>
@@ -347,6 +374,7 @@
 
       <section class="card tabpane" data-pane="trades" hidden>
         <h3>取引一覧 <span id="tradeCount" class="tag"></span></h3>
+        <div class="scrollnote">表は横にスクロールできます</div>
         <div class="tbl">
           <table id="tradeTable">
             <thead><tr>
@@ -399,6 +427,7 @@
           <input type="text" id="magicPattern" size="24" placeholder="空欄=自動判定">
           <button id="applyPattern">適用</button>
         </div>
+        <div class="scrollnote">表は横にスクロールできます</div>
         <div class="tbl">
           <table id="mapTable">
             <thead><tr>
@@ -562,7 +591,6 @@ function on(id, ev, fn) {
   if (!el) { console.warn('要素が見つかりません: #' + id); return; }
   el.addEventListener(ev, fn);
 }
-
 
 /* ---------------------------------------------------------- ファイル読み込み */
 var drop = document.getElementById('drop');
@@ -1697,7 +1725,6 @@ document.querySelector('.side').addEventListener('input', function (e) {
   }
 });
 
-
 document.querySelector('.side').addEventListener('click', function (e) {
   var el = e.target;
   var all = el.dataset ? el.dataset.all : null;
@@ -2732,7 +2759,6 @@ function runSelfCheck() {
     render();
   });
 });
-
 
 
 
