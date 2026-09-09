@@ -95,6 +95,9 @@
   .seg button{padding:5px 2px;font-size:11.5px;white-space:nowrap}
   .seg button:last-child{grid-column:1 / -1}
   .seg button.on{background:var(--ink);color:#fff;border-color:var(--ink)}
+  /* グラフの切り替えは本文側なので、幅いっぱいに広げず左に寄せる */
+  .chartseg{display:inline-flex;gap:5px;margin-bottom:10px}
+  .chartseg button{flex:0 0 auto;padding:5px 14px}
   /* 中身が入れ替わっても高さが動かないよう枠の高さを固定する */
   .period-slot{margin-top:8px;height:30px;position:relative}
   .period-slot > *{position:absolute;inset:0;margin-top:0}
@@ -344,11 +347,19 @@
       <div class="crumbs" id="crumbs"></div>
       <div class="banner warn" id="noMatch" hidden></div>
       <div class="stats" id="stats"></div>
-      <div class="card"><div id="chart-container"><canvas id="equityChart"></canvas></div></div>
+      <div class="card">
+        <!-- 入出金を読み込んでいるときだけ「口座残高」を選べる -->
+        <div class="seg chartseg" id="chartMode" hidden>
+          <button data-cm="pl" class="on">累積損益</button>
+          <button data-cm="bal">口座残高</button>
+        </div>
+        <div id="chart-container"><canvas id="equityChart"></canvas></div>
+      </div>
 
       <div class="tabs" id="tabs">
         <button data-tab="group" class="on">集計</button>
         <button data-tab="trades">取引一覧</button>
+        <button data-tab="cash" id="tabCash" hidden>入出金</button>
         <button data-tab="map">EA名の対応表</button>
         <button data-tab="diag">診断</button>
       </div>
@@ -403,6 +414,22 @@
           <input type="number" id="pageJump" min="1" step="1" title="ページ番号へ移動">
           <button id="pageNext">次 ›</button>
           <button id="pageLast" title="末尾へ">»</button>
+        </div>
+      </section>
+
+      <section class="card tabpane" data-pane="cash" hidden>
+        <div class="card-head">
+          <h3>入出金</h3><span id="cashCount" class="tag"></span>
+        </div>
+        <div class="hint" id="cashNote"></div>
+        <div class="scrollnote">表は横にスクロールできます</div>
+        <div class="tbl">
+          <table id="cashTable">
+            <thead><tr>
+              <th>日時</th><th>種別</th><th class="num">金額</th>
+              <th class="num">残高</th><th>摘要</th><th class="src-col">ソース</th>
+            </tr></thead><tbody></tbody>
+          </table>
         </div>
       </section>
 
@@ -478,6 +505,18 @@ var TYPE_WORDS = ['buy','sell','buy limit','sell limit','buy stop','sell stop',
   'buy stop limit','sell stop limit','balance','credit','deposit','withdrawal',
   'correction','bonus','commission','close at stop','in','out','in/out'];
 var TYPE_SET = new Set(TYPE_WORDS);
+/* 入出金の行から、画面に出す種別名を決める。
+   MT4/MT5 は type 列に balance / credit などを入れ、
+   実際が入金か出金かは金額の符号でしか分からない。 */
+function cashKindOf(type, amount) {
+  var t = String(type || '').toLowerCase();
+  if (t === 'credit')     return 'クレジット';
+  if (t === 'correction') return '調整';
+  if (t === 'bonus')      return 'ボーナス';
+  if (t === 'commission') return '手数料';
+  return amount >= 0 ? '入金' : '出金';
+}
+
 var BALANCE_TYPES = new Set(['balance','credit','deposit','withdrawal',
   'correction','bonus','commission']);
 
@@ -491,6 +530,8 @@ var UNKNOWN_EA = '(不明)';   /* 「(不明)」 */
 var state = { trades: [], sources: [], diag: null, chart: null,
               pattern: '', overrides: {},
               sel: {}, known: {}, listQuery: {}, listOpen: {},
+              cash: [],          /* 入出金。取引とは別に持つ */
+              chartMode: 'pl',   /* pl=累積損益 / bal=口座残高 */
               activeDim: 'ea',   /* いま絞り込みと集計に使っている軸 */
               drill: [],         /* 掘り下げて固定した軸 [{dim,value}] */
               page: 0, tab: 'group', lastSig: '' };
@@ -657,7 +698,8 @@ async function loadFiles(files) {
       if (state.sources[j].fileName === file.name) { existing = j; break; }
     }
     var entry = { fileName: file.name, label: label,
-                  encoding: r.encoding, diag: res.diag, trades: res.trades };
+                  encoding: r.encoding, diag: res.diag, trades: res.trades,
+                  cash: res.cash || [] };
     if (existing >= 0) state.sources[existing] = entry;
     else state.sources.push(entry);
   }
@@ -669,6 +711,17 @@ async function loadFiles(files) {
 function rebuildFromSources() {
   var all = [];
   state.sources.forEach(function (s) { all = all.concat(s.trades); });
+
+  /* 入出金は取引と別集計。ソースをまたいで時刻順に並べる */
+  var cashAll = [];
+  state.sources.forEach(function (s) {
+    (s.cash || []).forEach(function (c) {
+      cashAll.push({ time: c.time, ymd: ymdOf(c.time), amount: c.amount,
+                     kind: c.kind, note: c.note, source: s.label });
+    });
+  });
+  cashAll.sort(function (a, b) { return String(a.time).localeCompare(String(b.time)); });
+  state.cash = cashAll;
   all.sort(function (a, b) { return a.time.localeCompare(b.time); });
   all = aggregateTrades(all);
   all.sort(function (a, b) { return a.time.localeCompare(b.time); });
@@ -885,6 +938,7 @@ function newDiag() {
 }
 
 function parseReport(html) {
+  var cash = [];
   var doc = new DOMParser().parseFromString(html, 'text/html');
   var rows = Array.prototype.slice.call(doc.querySelectorAll('tr'));
   var diag = newDiag();
@@ -946,10 +1000,51 @@ function parseReport(html) {
 
     var type = pick('type').toLowerCase();
     if (!TYPE_SET.has(type)) continue;                  /* 合計行・見出し行などを除外 */
-    if (BALANCE_TYPES.has(type)) { diag.counts.balance++; continue; }
 
     var iProfit = col.profit + shift;
     var profit = parseNum(cells[iProfit] ? cells[iProfit].text : '');
+
+    /* 入出金は取引ではないので別枠に積む。
+       損益に混ぜると入金額がそのまま利益として集計されてしまう。
+
+       入出金の行は取引の行と列構成が違う。MT4のレポートでは
+       <td colspan="10">Deposit</td> のようにまとめられていて、
+       損益列の位置が取引行とずれる。列番号で拾うと取れないので、
+       金額は末尾から最初に見つかる数値、日時は最初の日付らしいセルを使う。 */
+    if (BALANCE_TYPES.has(type)) {
+      diag.counts.balance++;
+      var amt = profit;
+      if (!isFinite(amt)) {
+        for (var bi = cells.length - 1; bi >= 0; bi--) {
+          var bv = parseNum(cells[bi].text);
+          if (isFinite(bv)) { amt = bv; break; }
+        }
+      }
+      var btime = pick('time') || pick('openTime');
+      if (!/\d{4}[.\-\/]\d{1,2}[.\-\/]\d{1,2}/.test(btime)) {
+        btime = '';
+        for (var bj = 0; bj < cells.length; bj++) {
+          if (/\d{4}[.\-\/]\d{1,2}[.\-\/]\d{1,2}/.test(cells[bj].text)) {
+            btime = cells[bj].text; break;
+          }
+        }
+      }
+      /* 摘要は「数値でも日付でもない、いちばん長い文字列」を採る */
+      var bnote = '';
+      for (var bk = 0; bk < cells.length; bk++) {
+        var bt = cells[bk].text.trim();
+        if (!bt || bt === type) continue;
+        if (isFinite(parseNum(bt))) continue;
+        if (/\d{4}[.\-\/]\d{1,2}[.\-\/]\d{1,2}/.test(bt)) continue;
+        if (bt.length > bnote.length) bnote = bt;
+      }
+      if (isFinite(amt)) {
+        cash.push({ time: btime, type: type, amount: amt,
+                    kind: cashKindOf(type, amt), note: bnote });
+      }
+      continue;
+    }
+
     if (!isFinite(profit)) { diag.counts.noProfit++; continue; }
 
     var dts = [];
@@ -1016,14 +1111,16 @@ function parseReport(html) {
   diag.headerLen = headerLen;
   buildWarnings(diag);
   trades.sort(function (a, b) { return a.time.localeCompare(b.time); });
-  return { trades: trades, diag: diag };
+  cash.sort(function (a, b) { return String(a.time).localeCompare(String(b.time)); });
+  return { trades: trades, diag: diag, cash: cash };
 }
 
 /* --------------------------------------------------------- CSV / TSV パーサ */
 function parseDelimited(text) {
   var diag = newDiag();
+  var cash = [];
   var lines = text.split(/\r?\n/).filter(function (l) { return l.trim(); });
-  if (!lines.length) { buildWarnings(diag); return { trades: [], diag: diag }; }
+  if (!lines.length) { buildWarnings(diag); return { trades: [], diag: diag, cash: cash }; }
 
   var tabs = (lines[0].match(/\t/g) || []).length;
   var commas = (lines[0].match(/,/g) || []).length;
@@ -1058,6 +1155,24 @@ function parseDelimited(text) {
   for (var i = 1; i < lines.length; i++) {
     var c = split(lines[i]);
     var profit = parseNum(idx.profit >= 0 ? c[idx.profit] : '');
+
+    /* 入出金は取引と分ける。ここに除外が無かったため、
+       InpIncludeBalance を有効にしたTSVでは入金額が
+       「Deposit」という名前のEAの利益として集計されていた。 */
+    var rowType = String(idx.type >= 0 ? c[idx.type] : '').toLowerCase();
+    if (BALANCE_TYPES.has(rowType)) {
+      diag.counts.balance++;
+      if (isFinite(profit)) {
+        cash.push({
+          time: (idx.time >= 0 ? c[idx.time] : '') || (idx.openTime >= 0 ? c[idx.openTime] : ''),
+          type: rowType, amount: profit,
+          kind: cashKindOf(rowType, profit),
+          note: (idx.comment >= 0 ? c[idx.comment] : '') || ''
+        });
+      }
+      continue;
+    }
+
     if (!isFinite(profit)) { diag.counts.noProfit++; continue; }
     var raw = idx.comment >= 0 ? (c[idx.comment] || '') : '';
     var cc = cleanComment(raw);
@@ -1104,7 +1219,8 @@ function parseDelimited(text) {
   }
   buildWarnings(diag);
   trades.sort(function (a, b) { return a.time.localeCompare(b.time); });
-  return { trades: trades, diag: diag };
+  cash.sort(function (a, b) { return String(a.time).localeCompare(String(b.time)); });
+  return { trades: trades, diag: diag, cash: cash };
 }
 
 /* ---------------------------------------------------- コメント -> マジック/EA */
@@ -1396,6 +1512,14 @@ function buildWarnings(diag) {
   }
 }
 
+/* 入出金の時刻文字列から YYYY-MM-DD を作る。
+   取引側の ymd() と同じ形にそろえて期間比較に使う。 */
+function ymdOf(t) {
+  var m = String(t || '').match(/(\d{4})[.\-\/](\d{1,2})[.\-\/](\d{1,2})/);
+  if (!m) return '';
+  return m[1] + '-' + ('0' + m[2]).slice(-2) + '-' + ('0' + m[3]).slice(-2);
+}
+
 /* 全ソースの合算件数 */
 function sourceTotals() {
   var tot = { data: 0, closed: 0, open: 0, balance: 0, magicOk: 0, eaOk: 0 };
@@ -1405,6 +1529,129 @@ function sourceTotals() {
     tot.balance += c.balance; tot.magicOk += c.magicOk; tot.eaOk += c.eaOk;
   });
   return tot;
+}
+
+/* 入出金の一覧。残高列はその時点の口座残高を出す。 */
+function renderCashTable() {
+  var rows = filteredCash();
+  var tab = document.getElementById('tabCash');
+  tab.hidden = !state.cash.length;
+
+  document.getElementById('cashCount').textContent = rows.length + ' 件';
+  var series = balanceSeries();
+  var inSum = 0, outSum = 0;
+  rows.forEach(function (c) {
+    if (c.amount >= 0) inSum += c.amount; else outSum += c.amount;
+  });
+  document.getElementById('cashNote').textContent =
+    '入金 ' + fx(inSum) + ' ／ 出金 ' + fx(outSum)
+    + ' ／ 差引き ' + fx(inSum + outSum)
+    + '　残高は「それまでの入出金＋確定損益」で計算しています'
+    + (state.sources.length > 1 ? '（複数口座を読み込んでいる場合はソースで絞ってください）' : '');
+
+  var multi = state.sources.length > 1;
+  Array.from(document.querySelectorAll('#cashTable .src-col')).forEach(function (el) {
+    el.hidden = !multi;
+  });
+
+  document.querySelector('#cashTable tbody').innerHTML = rows.map(function (c) {
+    return '<tr>'
+      + '<td>' + esc(c.time) + '</td>'
+      + '<td>' + esc(c.kind) + '</td>'
+      + '<td class="num ' + cls(c.amount) + '">' + fx(c.amount) + '</td>'
+      + '<td class="num">' + fx(balanceAt(series, c.ymd)) + '</td>'
+      + '<td title="' + esc(c.note) + '">' + esc(c.note) + '</td>'
+      + '<td class="src-col"' + (multi ? '' : ' hidden') + '>' + esc(c.source || '') + '</td>'
+      + '</tr>';
+  }).join('');
+}
+
+/* 入出金があるときだけ残高系のカードを足す。
+   入出金を書き出していない履歴では出しても意味がないため。 */
+function cashCards(sMoney) {
+  if (!state.cash.length) return '';
+  var from = document.getElementById('dateFrom').value;
+  var to = document.getElementById('dateTo').value;
+  var series = balanceSeries();
+  if (!series.length) return '';
+
+  var startBal = from ? balanceBefore(series, from) : 0;
+  var endBal = balanceAt(series, to || '');
+  var cashIn = filteredCash().reduce(function (a, c) { return a + c.amount; }, 0);
+  var deposits = filteredCash().reduce(function (a, c) {
+    return a + (c.amount > 0 ? c.amount : 0);
+  }, 0);
+
+  /* 分母は「期間中に投じた資金」= 開始残高 + 期間中の入金。
+     開始残高が0（口座開設時から見ている）でも成り立つ。 */
+  var base = startBal + deposits;
+  var ret = (base > 0 && sMoney) ? (sMoney.net / base * 100) : null;
+
+  return card('開始残高', fx(startBal), '')
+    + card('終了残高', fx(endBal), '')
+    + card('入出金', (cashIn > 0 ? '+' : '') + fx(cashIn), cls(cashIn))
+    + card('リターン率', ret === null ? '\u2014' : ret.toFixed(1) + '%',
+           ret === null ? '' : cls(ret));
+}
+
+/* 口座残高の推移を作る。
+   残高 = それまでの入出金の合計 + それまでの確定損益の合計。
+   履歴が口座開設時から揃っていれば実際の残高と一致する。
+   期間を絞って書き出した履歴では、開始時点が0の相対値になる。 */
+function balanceSeries() {
+  var ev = [];
+  state.cash.forEach(function (c) {
+    if (c.ymd) ev.push({ ymd: c.ymd, v: c.amount });
+  });
+  /* ソース絞り込みは効かせる。口座をまたぐと残高の意味が無くなるため */
+  var selSrc = state.sel.source;
+  state.trades.forEach(function (t) {
+    var d = ymd(t);
+    if (!d || !t.closed) return;
+    if (selSrc && !selSrc.has(t.source || '-')) return;
+    ev.push({ ymd: d, v: t.profit });
+  });
+  ev.sort(function (a, b) { return a.ymd.localeCompare(b.ymd); });
+
+  var run = 0, out = [];
+  for (var i = 0; i < ev.length; i++) {
+    run += ev[i].v;
+    out.push({ ymd: ev[i].ymd, bal: run });
+  }
+  return out;
+}
+
+/* ある日付の直前時点の残高（その日を含まない） */
+function balanceBefore(series, ymdStr) {
+  var b = 0;
+  for (var i = 0; i < series.length; i++) {
+    if (ymdStr && series[i].ymd >= ymdStr) break;
+    b = series[i].bal;
+  }
+  return b;
+}
+
+function balanceAt(series, ymdStr) {
+  var b = 0;
+  for (var i = 0; i < series.length; i++) {
+    if (ymdStr && series[i].ymd > ymdStr) break;
+    b = series[i].bal;
+  }
+  return b;
+}
+
+/* 期間内の入出金（ソース絞り込みも適用） */
+function filteredCash() {
+  var from = document.getElementById('dateFrom').value;
+  var to = document.getElementById('dateTo').value;
+  var selSrc = state.sel.source;
+  return state.cash.filter(function (c) {
+    if (!c.ymd) return false;
+    if (from && c.ymd < from) return false;
+    if (to && c.ymd > to) return false;
+    if (selSrc && !selSrc.has(c.source || '-')) return false;
+    return true;
+  });
 }
 
 /* 注意書きはヘッダー右のボタンに畳んでおき、押したときだけ開く。
@@ -1432,6 +1679,13 @@ function renderNotices() {
   chip.textContent = '⚠ 注意 ' + notes.length + ' 件';
   body.innerHTML = notes.map(function (w) { return '・' + esc(w); }).join('<br>');
 }
+
+on('chartMode', 'click', function (e) {
+  var m = e.target.dataset ? e.target.dataset.cm : null;
+  if (!m) return;
+  state.chartMode = m;
+  render();
+});
 
 on('noticeChip', 'click', function () {
   var body = document.getElementById('noticeBody');
@@ -2115,7 +2369,11 @@ var STAT_HELP = {
   'PF': 'プロフィットファクター。総利益 ÷ 総損失。1を超えると利益が上回る',
   '取引数': '選択中の取引件数',
   '平均損益': '1取引あたりの平均損益',
-  '平均pips': '1取引あたりの平均pips'
+  '平均pips': '1取引あたりの平均pips',
+  '開始残高': '期間の開始時点の口座残高（それ以前の入出金と確定損益の合計）',
+  '終了残高': '期間の終了時点の口座残高',
+  '入出金': '期間中の入金と出金の差引き。プラスなら入金超過',
+  'リターン率': '純損益 ÷（開始残高＋期間中の入金）。期間中に投じた資金に対する損益の割合'
 };
 
 function card(label, value, klass) {
@@ -2238,9 +2496,40 @@ function render() {
         + card('勝率', s.winRate.toFixed(1) + '%', '')
         + card('PF', pfStr(s.pf), '')
         + card('取引数', String(s.n), '')
-        + card(isPips ? '平均pips' : '平均損益', fmt(s.avg) + suffix, cls(s.avg));
+        + card(isPips ? '平均pips' : '平均損益', fmt(s.avg) + suffix, cls(s.avg))
+        + cashCards(sMoney);
 
-  drawChart(s ? s.equity : [0], s ? s.dates : ['']);
+  /* 入出金を読み込んでいれば「口座残高」に切り替えられる。
+     累積損益カーブは0始まりだが、残高カーブは実際の口座残高を描く。 */
+  var canBal = state.cash.length > 0 && balanceSeries().length > 0;
+  var segEl = document.getElementById('chartMode');
+  segEl.hidden = !canBal;
+  if (!canBal && state.chartMode === 'bal') state.chartMode = 'pl';
+  Array.from(segEl.querySelectorAll('button')).forEach(function (b) {
+    b.className = (b.dataset.cm === state.chartMode) ? 'on' : '';
+  });
+
+  if (state.chartMode === 'bal') {
+    var from = document.getElementById('dateFrom').value;
+    var to = document.getElementById('dateTo').value;
+    var ser = balanceSeries().filter(function (p) {
+      if (from && p.ymd < from) return false;
+      if (to && p.ymd > to) return false;
+      return true;
+    });
+    if (ser.length) {
+      /* 期間の開始残高を先頭に置き、そこからの動きとして描く */
+      var head = from ? balanceBefore(balanceSeries(), from) : 0;
+      drawChart([head].concat(ser.map(function (p) { return p.bal; })),
+                [ser[0].ymd].concat(ser.map(function (p) { return p.ymd; })));
+    } else {
+      drawChart([0], ['']);
+    }
+  } else {
+    drawChart(s ? s.equity : [0], s ? s.dates : ['']);
+  }
+
+  renderCashTable();
 
   /* 集計軸は絞り込みに使っている軸そのもの。
      これ以上掘れない場合（3軸すべて固定）は全体を1行にまとめる */
