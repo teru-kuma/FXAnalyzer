@@ -12,6 +12,9 @@
 //    2. MetaEditor で開いてコンパイル（F7）
 //    3. ナビゲータの「スクリプト」から任意のチャートにドラッグ
 //    4. 出力先は <データフォルダ>/MQL5/Files/ に作られる
+//       InpSubFolder を指定すると、その下のサブフォルダに作られる。
+//       Google Drive に自動で上げたい場合は、そのフォルダを
+//       Drive デスクトップ版の同期対象に追加する
 //    5. そのTSVを MT_Trade_Analyzer.html にドロップする
 //
 //  MT4版との違い
@@ -49,12 +52,44 @@
 #property script_show_inputs
 
 input string   InpFileName       = "";     // 出力ファイル名（空欄=自動命名）
+input string   InpSubFolder      = "";     // 出力先サブフォルダ（空欄=Files直下）
 input datetime InpFrom           = 0;      // この決済日時以降のみ（0=全期間）
 input datetime InpTo             = 0;      // この決済日時以前のみ（0=全期間）
 input bool     InpIncludeBalance = false;  // 入出金(balance/credit)も出力する
 input bool     InpIncludeOpen    = false;  // 未決済ポジションも出力する
 
 #define TAB "\t"
+
+//+------------------------------------------------------------------+
+//| サブフォルダ名の検証。使えない指定なら "!" を返す。               |
+//| MQL のファイル操作は MQL5/Files の外に出られないので、          |
+//| ドライブ文字や上位への移動 (..) は受け付けない。                  |
+//+------------------------------------------------------------------+
+string NormalizeSubFolder(string v)
+  {
+   StringTrimLeft(v);
+   StringTrimRight(v);
+   if(StringLen(v) == 0)
+      return("");
+
+   StringReplace(v, "/", "\\");          // スラッシュ区切りも許す
+
+   //--- 前後の区切り文字を落とす
+   while(StringLen(v) > 0 && StringSubstr(v, 0, 1) == "\\")
+      v = StringSubstr(v, 1);
+   while(StringLen(v) > 0 && StringSubstr(v, StringLen(v) - 1, 1) == "\\")
+      v = StringSubstr(v, 0, StringLen(v) - 1);
+   if(StringLen(v) == 0)
+      return("");
+
+   //--- ドライブ指定 (C: など) と上位への移動は不可
+   if(StringFind(v, ":") >= 0)
+      return("!");
+   if(StringFind(v, "..") >= 0)
+      return("!");
+
+   return(v);
+  }
 
 //--- IN側ディールの索引（position_id -> 建玉情報）
 //
@@ -165,12 +200,32 @@ void OnStart()
               + "_" + d + ".tsv";
      }
 
-   int h = FileOpen(fname, FILE_WRITE|FILE_TXT|FILE_ANSI);
+   /* サブフォルダ指定。MQL は MQL5/Files の中しか触れないので、
+      絶対パスや上位への移動は弾く。Google Drive に自動で上げたい場合は、
+      ここで指定したフォルダを Drive 側の同期対象に追加する。 */
+   string sub = NormalizeSubFolder(InpSubFolder);
+   if(sub == "!")
+     {
+      Alert("出力先サブフォルダが不正です: ", InpSubFolder,
+            " / ドライブ文字や .. は使えません（MQL5/Files の下だけ）");
+      return;
+     }
+   string path = fname;
+   if(StringLen(sub) > 0)
+     {
+      /* すでに在る場合もエラーを返す環境があるため、失敗しても続行して
+         FileOpen の結果で判断する */
+      if(!FolderCreate(sub))
+         Print("FolderCreate note: ", sub, " error=", GetLastError());
+      path = sub + "\\" + fname;
+     }
+
+   int h = FileOpen(path, FILE_WRITE|FILE_TXT|FILE_ANSI);
    if(h == INVALID_HANDLE)
      {
       int err = GetLastError();
-      Print("FileOpen failed: ", fname, " error=", err);
-      Alert("ファイルを開けませんでした: ", fname, " (error ", err, ")");
+      Print("FileOpen failed: ", path, " error=", err);
+      Alert("ファイルを開けませんでした: ", path, " (error ", err, ")");
       return;
      }
 
@@ -353,7 +408,7 @@ void OnStart()
 
    FileClose(h);
 
-   string msg = "書き出しました: MQL5/Files/" + fname + "\n"
+   string msg = "書き出しました: MQL5/Files/" + path + "\n"
                 + "決済 " + IntegerToString(closedCount) + " 件"
                 + " / 入出金 " + IntegerToString(balanceCount) + " 件"
                 + " / 未決済 " + IntegerToString(openCount) + " 件"
