@@ -95,6 +95,21 @@
   .seg button{padding:5px 2px;font-size:11.5px;white-space:nowrap}
   .seg button:last-child{grid-column:1 / -1}
   .seg button.on{background:var(--ink);color:#fff;border-color:var(--ink)}
+  /* 重ね表示の本数オーバーなどの案内。グラフの枠の上に重ねて、高さは変えない */
+  .chart-overlay{position:absolute;inset:0;display:flex;align-items:center;
+                 justify-content:center;text-align:center;padding:24px;
+                 background:rgba(255,255,255,.88);color:var(--sub);
+                 font-size:13px;line-height:1.8;z-index:3}
+
+  /* 比較タブ */
+  .cmp-h{margin:18px 0 4px;font-size:13px}
+  #corrTable td,#worstTable td{text-align:right}
+  #corrTable td.rowh,#worstTable td.rowh{text-align:left;font-weight:600}
+  .corr-hi{background:#fdecea;color:var(--neg);font-weight:600}
+  .corr-mid{background:#fff6e0}
+  .corr-neg{background:#eaf6ee;color:var(--pos)}
+  .corr-na,.muted{color:#b3bac4}
+
   /* グラフの切り替えは本文側なので、幅いっぱいに広げず左に寄せる */
   .chartseg{display:inline-flex;gap:5px;margin-bottom:10px}
   .chartseg button{flex:0 0 auto;padding:5px 14px}
@@ -255,6 +270,7 @@
     #tradeTable{min-width:820px}
     #groupTable{min-width:760px}
     #mapTable{min-width:700px}
+    #corrTable,#worstTable{min-width:640px}
     #srcTable{min-width:0}
     .scrollnote{display:block}
 
@@ -352,13 +368,19 @@
         <div class="seg chartseg" id="chartMode" hidden>
           <button data-cm="pl" class="on">累積損益</button>
           <button data-cm="bal">口座残高</button>
+          <button data-cm="grp">EA名別</button>
         </div>
-        <div id="chart-container"><canvas id="equityChart"></canvas></div>
+        <div id="chart-container">
+          <canvas id="equityChart"></canvas>
+          <!-- 重ね表示の本数が多すぎるときなど、グラフの代わりに案内を出す -->
+          <div class="chart-overlay" id="chartOverlay" hidden></div>
+        </div>
       </div>
 
       <div class="tabs" id="tabs">
         <button data-tab="group" class="on">集計</button>
         <button data-tab="trades">取引一覧</button>
+        <button data-tab="compare">比較</button>
         <button data-tab="cash" id="tabCash" hidden>入出金</button>
         <button data-tab="map">EA名の対応表</button>
         <button data-tab="diag">診断</button>
@@ -414,6 +436,29 @@
           <input type="number" id="pageJump" min="1" step="1" title="ページ番号へ移動">
           <button id="pageNext">次 ›</button>
           <button id="pageLast" title="末尾へ">»</button>
+        </div>
+      </section>
+
+      <section class="card tabpane" data-pane="compare" hidden>
+        <div class="card-head">
+          <h3>比較</h3><span id="cmpCount" class="tag"></span>
+        </div>
+        <div class="hint" id="cmpNote"></div>
+        <div id="cmpBody" hidden>
+          <h4 class="cmp-h">相関（日ごとの損益の連動）</h4>
+          <div class="hint">
+            日ごとの損益がどれだけ一緒に動くかを −1〜1 で示します。
+            1に近いほど同じ日に勝ち負けしやすく、組み合わせても分散の効果が小さくなります。
+            0.5以上を赤、−0.2以下を緑で示しています。
+            取引日が20日未満のものは偶然に左右されやすいため「—」にしています。
+          </div>
+          <div class="scrollnote">表は横にスクロールできます</div>
+          <div class="tbl"><table id="corrTable"></table></div>
+
+          <h4 class="cmp-h">ワースト10日の内訳</h4>
+          <div class="hint" id="worstNote"></div>
+          <div class="scrollnote">表は横にスクロールできます</div>
+          <div class="tbl"><table id="worstTable"></table></div>
         </div>
       </section>
 
@@ -1594,6 +1639,249 @@ function cashCards(sMoney) {
            ret === null ? '' : cls(ret));
 }
 
+/* ------------------------------------------------ 重ね表示と比較タブ
+   どちらも「左のリストでチェックしたもの」だけを対象にする。
+   全部を重ねると線が絡んで読めないので、見たいものは利用者に選んでもらう。 */
+var CMP_MAX = 8;          /* 同時に比べられる上限。これを超えると色の見分けがつかない */
+var CMP_MIN_DAYS = 20;    /* 相関を出す最低の取引日数。少ないと偶然で高い値が出る */
+var GROUP_COLORS = ['#2563eb', '#d97706', '#7c3aed', '#0891b2',
+                    '#db2777', '#16a34a', '#4b5563', '#dc2626'];
+
+/* 取引を「グループ × 決済日」にまとめる。
+   グループ別カーブと比較タブの共通の土台。確定した取引だけを使う。 */
+function dailyByGroup(trades, dim, unit) {
+  var isPips = unit === 'pips';
+  var map = new Map(), daySet = {};
+  trades.forEach(function (t) {
+    if (!t.closed) return;
+    var v = isPips ? t.pips : t.profit;
+    if (v === null || v === undefined || !isFinite(v)) return;
+    var d = ymd(t);
+    if (!d) return;
+    var raw = dim ? dimValueOf(t, dim) : '全体';
+    if (!map.has(raw)) {
+      map.set(raw, { raw: raw, label: dim ? dimLabelOf(dim, raw) : '全体',
+                     byDay: {}, total: 0, days: 0 });
+    }
+    var g = map.get(raw);
+    if (!(d in g.byDay)) { g.byDay[d] = 0; g.days++; }
+    g.byDay[d] += v;
+    g.total += v;
+    daySet[d] = 1;
+  });
+  /* 並びは損益の大きい順。グラフの色と比較表の色をこの順で揃える */
+  var groups = Array.from(map.values()).sort(function (a, b) { return b.total - a.total; });
+  return { days: Object.keys(daySet).sort(), groups: groups };
+}
+
+function groupColor(i) { return GROUP_COLORS[i % GROUP_COLORS.length]; }
+
+function chartOverlay(msg) {
+  var el = document.getElementById('chartOverlay');
+  el.hidden = !msg;
+  el.textContent = msg || '';
+}
+
+/* グループごとの累積カーブを同じ日付軸に重ねる。
+   取引の無い日は前日の値を引き継ぐので、線が途切れない。 */
+function drawGroupChart(dg) {
+  var cv = document.getElementById('equityChart');
+  var series = dg.groups.map(function (g) {
+    var run = 0;
+    return dg.days.map(function (d) {
+      run += (g.byDay[d] || 0);
+      return Math.round(run * 100) / 100;
+    });
+  });
+  if (typeof Chart === 'undefined') { drawFallbackMulti(cv, series, dg); return; }
+
+  var fmt = tickFormatterFor(dg.days);
+  if (state.chart) state.chart.destroy();
+  state.chart = new Chart(cv.getContext('2d'), {
+    type: 'line',
+    data: {
+      labels: dg.days.map(fmt),
+      datasets: dg.groups.map(function (g, i) {
+        return { label: g.label, data: series[i],
+                 borderColor: groupColor(i), backgroundColor: groupColor(i),
+                 fill: false, tension: 0.15, pointRadius: 0, borderWidth: 1.8 };
+      })
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false, animation: false,
+      interaction: { mode: 'index', intersect: false },
+      scales: {
+        x: { display: true, grid: { display: false },
+             ticks: { autoSkip: true, maxTicksLimit: 8, maxRotation: 0, minRotation: 0,
+                      font: { size: 10 }, color: '#65727f' } },
+        y: { ticks: { font: { size: 10 }, color: '#65727f' } }
+      },
+      plugins: {
+        /* 線が複数あるので凡例を出す。どの線がどのEAかが分からないと意味がない */
+        legend: { display: true, position: 'top', align: 'start',
+                  labels: { boxWidth: 12, boxHeight: 2, font: { size: 11 } } },
+        tooltip: {
+          callbacks: {
+            title: function (items) {
+              var i = items.length ? items[0].dataIndex : 0;
+              return dg.days[i] || '';
+            }
+          }
+        }
+      }
+    }
+  });
+}
+
+/* Chart.js が読めない環境向けの簡易描画（複数本） */
+function drawFallbackMulti(cv, series, dg) {
+  var dpr = window.devicePixelRatio || 1;
+  var w = cv.clientWidth || 800, h = cv.clientHeight || 360;
+  cv.width = w * dpr;
+  cv.height = h * dpr;
+  var g = cv.getContext('2d');
+  g.setTransform(dpr, 0, 0, dpr, 0, 0);
+  g.clearRect(0, 0, w, h);
+  var all = [].concat.apply([0], series);
+  var min = Math.min.apply(null, all), max = Math.max.apply(null, all);
+  var span = (max - min) || 1, n = Math.max(1, dg.days.length - 1);
+  var X = function (i) { return 44 + i / n * (w - 54); };
+  var Y = function (v) { return h - 24 - (v - min) / span * (h - 60); };
+  series.forEach(function (ser, k) {
+    g.strokeStyle = groupColor(k);
+    g.lineWidth = 1.8;
+    g.beginPath();
+    ser.forEach(function (v, i) { if (i) g.lineTo(X(i), Y(v)); else g.moveTo(X(i), Y(v)); });
+    g.stroke();
+    g.fillStyle = groupColor(k);
+    g.font = '11px sans-serif';
+    g.fillText(dg.groups[k].label, 48 + (k % 4) * 130, 14 + Math.floor(k / 4) * 14);
+  });
+}
+
+/* ピアソンの相関係数。どちらかが一定値なら出せないので null */
+function pearson(a, b) {
+  var n = a.length, i;
+  if (n < 3) return null;
+  var ma = 0, mb = 0;
+  for (i = 0; i < n; i++) { ma += a[i]; mb += b[i]; }
+  ma /= n; mb /= n;
+  var sab = 0, saa = 0, sbb = 0;
+  for (i = 0; i < n; i++) {
+    var x = a[i] - ma, y = b[i] - mb;
+    sab += x * y; saa += x * x; sbb += y * y;
+  }
+  if (saa === 0 || sbb === 0) return null;
+  return sab / Math.sqrt(saa * sbb);
+}
+
+/* 比較タブ。チェックしたものが2〜8件のときだけ表を出す */
+function renderCompare(trades, dim, unit) {
+  var note = document.getElementById('cmpNote');
+  var body = document.getElementById('cmpBody');
+  var isPips = unit === 'pips';
+  var f = isPips ? fpips : fx;
+  var dimName = dim ? DIM_LABEL[dim] : '';
+  var dg = dailyByGroup(trades, dim, unit);
+  var n = dg.groups.length;
+  document.getElementById('cmpCount').textContent = n + ' 件';
+
+  if (!dim || n < 2) {
+    body.hidden = true;
+    note.textContent = '比較するには、左の ' + (dimName || 'リスト')
+      + ' で2つ以上にチェックを入れてください。チェックしたものだけがここで比較されます。';
+    return;
+  }
+  if (n > CMP_MAX) {
+    body.hidden = true;
+    note.textContent = dimName + ' が ' + n + ' 件選ばれています。比較できるのは '
+      + CMP_MAX + ' 件までです。左のリストで見比べたいものだけにチェックを絞ってください'
+      + '（「全選択 / 解除」の「解除」で一度すべて外すと選びやすくなります）。';
+    return;
+  }
+  body.hidden = false;
+  note.textContent = dimName + ' ' + n + ' 件を比較しています'
+    + '（取引のあった ' + dg.days.length + ' 日・' + (isPips ? 'pips' : '金額')
+    + '・確定した取引のみ）。色はグラフの「' + dimName + '別」と揃えています。';
+
+  var vec = dg.groups.map(function (g) {
+    return dg.days.map(function (d) { return g.byDay[d] || 0; });
+  });
+  var nameCell = function (g, i) {
+    return '<td class="rowh" title="' + esc(g.label) + '">'
+      + '<span class="dot" style="background:' + groupColor(i) + '"></span>'
+      + esc(g.label) + '</td>';
+  };
+
+  /* ---- 相関の表 ---- */
+  var ch = '<thead><tr><th></th>' + dg.groups.map(function (g, i) {
+    return '<th class="num" title="' + esc(g.label) + '">'
+      + '<span class="dot" style="background:' + groupColor(i) + '"></span>'
+      + esc(g.label) + '</th>';
+  }).join('') + '</tr></thead><tbody>';
+  dg.groups.forEach(function (g, i) {
+    ch += '<tr>' + nameCell(g, i);
+    dg.groups.forEach(function (h, j) {
+      if (i === j) { ch += '<td class="corr-na">\u2014</td>'; return; }
+      if (g.days < CMP_MIN_DAYS || h.days < CMP_MIN_DAYS) {
+        ch += '<td class="corr-na" title="取引日が' + CMP_MIN_DAYS
+          + '日未満のため出していません">\u2014</td>';
+        return;
+      }
+      var r = pearson(vec[i], vec[j]);
+      if (r === null) { ch += '<td class="corr-na">\u2014</td>'; return; }
+      var c = r >= 0.5 ? 'corr-hi' : r >= 0.2 ? 'corr-mid' : r <= -0.2 ? 'corr-neg' : '';
+      ch += '<td class="' + c + '">' + r.toFixed(2) + '</td>';
+    });
+    ch += '</tr>';
+  });
+  document.getElementById('corrTable').innerHTML = ch + '</tbody>';
+
+  /* ---- ワースト10日 ---- */
+  var totals = dg.days.map(function (d, k) {
+    var sum = 0, losers = 0;
+    for (var i = 0; i < vec.length; i++) {
+      sum += vec[i][k];
+      if (vec[i][k] < 0) losers++;
+    }
+    return { d: d, k: k, sum: sum, losers: losers };
+  });
+  var worst = totals.filter(function (x) { return x.sum < 0; })
+                    .sort(function (a, b) { return a.sum - b.sum; })
+                    .slice(0, 10);
+  var together = worst.filter(function (x) { return x.losers >= 2; }).length;
+
+  document.getElementById('worstNote').textContent =
+    '選んだものを合計して損失が大きかった日の上位10日です。'
+    + '同じ日に複数が負けていれば、一緒に崩れやすい組み合わせです。'
+    + (worst.length
+       ? '　この ' + worst.length + ' 日のうち、2つ以上が同時にマイナスだった日: '
+         + together + ' 日'
+       : '');
+
+  var wh = '<thead><tr><th>日付</th><th class="num">合計</th>'
+    + dg.groups.map(function (g, i) {
+        return '<th class="num" title="' + esc(g.label) + '">'
+          + '<span class="dot" style="background:' + groupColor(i) + '"></span>'
+          + esc(g.label) + '</th>';
+      }).join('') + '</tr></thead><tbody>';
+  if (!worst.length) {
+    wh += '<tr><td colspan="' + (n + 2) + '" class="rowh">損失の出た日はありません</td></tr>';
+  }
+  worst.forEach(function (x) {
+    wh += '<tr><td class="rowh">' + esc(x.d) + '</td>'
+      + '<td class="negative">' + f(x.sum) + '</td>';
+    dg.groups.forEach(function (g) {
+      /* 取引の無かった日と「損益0」を区別する */
+      if (!(x.d in g.byDay)) { wh += '<td class="muted">\u2014</td>'; return; }
+      var v = g.byDay[x.d];
+      wh += '<td class="' + cls(v) + '">' + f(v) + '</td>';
+    });
+    wh += '</tr>';
+  });
+  document.getElementById('worstTable').innerHTML = wh + '</tbody>';
+}
+
 /* 口座残高の推移を作る。
    残高 = それまでの入出金の合計 + それまでの確定損益の合計。
    履歴が口座開設時から揃っていれば実際の残高と一致する。
@@ -2260,9 +2548,12 @@ function resetDimSelection(dim) {
 
 /* 集計表の行から1段掘り下げる */
 function drillInto(value) {
-  var nd = nextDim();
   if (!state.activeDim) return;
-  state.drill.push({ dim: state.activeDim, value: value });
+  /* 掘る前の軸とチェック状態を覚えておき、戻ったときに復元する。
+     比較のために絞った選択が、1段掘って戻るだけで全件に戻ってしまうのを防ぐ */
+  var cur = state.sel[state.activeDim];
+  state.drill.push({ dim: state.activeDim, value: value,
+                     sel: cur ? Array.from(cur) : null });
   var next = nextDim();
   state.activeDim = next;
   if (next) resetDimSelection(next);
@@ -2274,10 +2565,21 @@ function drillInto(value) {
 
 /* パンくずを n 段目まで戻す（n=0 で全解除） */
 function drillTo(n) {
+  var back = state.drill[n];      /* 戻る先の段で使っていた軸と選択 */
   state.drill = state.drill.slice(0, n);
-  var next = nextDim();
-  state.activeDim = next || DIMS[0];
-  resetDimSelection(state.activeDim);
+  if (back) {
+    state.activeDim = back.dim;
+    var sel = state.sel[back.dim];
+    if (sel && back.sel) {
+      sel.clear();
+      back.sel.forEach(function (v) { sel.add(v); });
+    } else {
+      resetDimSelection(back.dim);
+    }
+  } else {
+    state.activeDim = nextDim() || DIMS[0];
+    resetDimSelection(state.activeDim);
+  }
   state.page = 0;
   renderLists();
   renderCrumbs();
@@ -2502,14 +2804,36 @@ function render() {
   /* 入出金を読み込んでいれば「口座残高」に切り替えられる。
      累積損益カーブは0始まりだが、残高カーブは実際の口座残高を描く。 */
   var canBal = state.cash.length > 0 && balanceSeries().length > 0;
+  /* グループ別は集計軸があるときだけ（3軸すべて掘り下げると軸が無くなる） */
+  var gdim = state.activeDim;
   var segEl = document.getElementById('chartMode');
-  segEl.hidden = !canBal;
+  segEl.querySelector('[data-cm="bal"]').hidden = !canBal;
+  var grpBtn = segEl.querySelector('[data-cm="grp"]');
+  grpBtn.hidden = !gdim;
+  if (gdim) grpBtn.textContent = DIM_LABEL[gdim] + '別';
+  segEl.hidden = !canBal && !gdim;
   if (!canBal && state.chartMode === 'bal') state.chartMode = 'pl';
+  if (!gdim && state.chartMode === 'grp') state.chartMode = 'pl';
   Array.from(segEl.querySelectorAll('button')).forEach(function (b) {
     b.className = (b.dataset.cm === state.chartMode) ? 'on' : '';
   });
+  chartOverlay('');
 
-  if (state.chartMode === 'bal') {
+  if (state.chartMode === 'grp') {
+    var dg = dailyByGroup(trades, gdim, unit);
+    if (!dg.groups.length) {
+      drawChart([0], ['']);
+      chartOverlay('表示できる取引がありません');
+    } else if (dg.groups.length > CMP_MAX) {
+      /* 全部重ねると読めないので描かない。見たいものを選んでもらう */
+      drawChart([0], ['']);
+      chartOverlay(DIM_LABEL[gdim] + ' が ' + dg.groups.length + ' 件選ばれています。'
+        + '重ねて表示できるのは ' + CMP_MAX + ' 件までです。'
+        + '左の ' + DIM_LABEL[gdim] + ' のリストで、見比べたいものだけにチェックを絞ってください。');
+    } else {
+      drawGroupChart(dg);
+    }
+  } else if (state.chartMode === 'bal') {
     var from = document.getElementById('dateFrom').value;
     var to = document.getElementById('dateTo').value;
     var ser = balanceSeries().filter(function (p) {
@@ -2530,6 +2854,7 @@ function render() {
   }
 
   renderCashTable();
+  renderCompare(trades, state.activeDim, unit);
 
   /* 集計軸は絞り込みに使っている軸そのもの。
      これ以上掘れない場合（3軸すべて固定）は全体を1行にまとめる */
