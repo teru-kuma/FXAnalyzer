@@ -124,6 +124,7 @@ MQL のファイル操作は `Files` フォルダの外に書き込めないた�
 
 ```
 MT_Trade_Analyzer.html        解析ツール本体（これ1枚で動作）
+index.html                    GitHub Pages で短いURLを開いたときに本体へ転送するだけのファイル
 ExportHistoryTSV.mq4 / .ex4   MT4用 書き出しスクリプト（ソース / コンパイル済み）
 ExportHistoryTSV.mq5 / .ex5   MT5用 書き出しスクリプト（ソース / コンパイル済み）
 MT4MT5 Trade Analyzer.md      開発の経緯と設計メモ
