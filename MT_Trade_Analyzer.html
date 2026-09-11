@@ -280,6 +280,14 @@
     .navrow button{padding:7px 0}
     .tabs button{padding:9px 12px}
   }
+
+  /* タッチ操作の端末（スマホ・タブレット）ではドラッグ&ドロップができないので、
+     ドロップ枠と「ドロップしても読み込めます」の一文を出さない。
+     画面幅ではなく操作方法で判定する（大きいタブレットでもドロップはできない）。 */
+  .drop-only{display:inline}
+  @media (hover:none) and (pointer:coarse){
+    .drop,.drop-only{display:none}
+  }
 </style>
 </head>
 <body>
@@ -354,8 +362,8 @@
       <div class="card" id="emptyState">
         <h3>ファイルを読み込んでください</h3>
         <div class="hint">
-          左の「ファイルを読み込む」から、MT4/MT5のHTMLレポート、または
-          ExportHistoryTSV が出力したTSVを選んでください。画面のどこにドロップしても読み込めます。
+          「ファイルを読み込む」から、MT4/MT5のHTMLレポート、または
+          ExportHistoryTSV が出力したTSVを選んでください。<span class="drop-only">画面のどこにドロップしても読み込めます。</span>
         </div>
       </div>
 
@@ -1788,14 +1796,14 @@ function renderCompare(trades, dim, unit) {
 
   if (!dim || n < 2) {
     body.hidden = true;
-    note.textContent = '比較するには、左の ' + (dimName || 'リスト')
-      + ' で2つ以上にチェックを入れてください。チェックしたものだけがここで比較されます。';
+    note.textContent = '比較するには、' + (dimName ? '「' + dimName + '」のリスト' : '絞り込みのリスト')
+      + 'で2つ以上にチェックを入れてください。チェックしたものだけがここで比較されます。';
     return;
   }
   if (n > CMP_MAX) {
     body.hidden = true;
     note.textContent = dimName + ' が ' + n + ' 件選ばれています。比較できるのは '
-      + CMP_MAX + ' 件までです。左のリストで見比べたいものだけにチェックを絞ってください'
+      + CMP_MAX + ' 件までです。「' + dimName + '」のリストで見比べたいものだけにチェックを絞ってください'
       + '（「全選択 / 解除」の「解除」で一度すべて外すと選びやすくなります）。';
     return;
   }
@@ -2829,7 +2837,7 @@ function render() {
       drawChart([0], ['']);
       chartOverlay(DIM_LABEL[gdim] + ' が ' + dg.groups.length + ' 件選ばれています。'
         + '重ねて表示できるのは ' + CMP_MAX + ' 件までです。'
-        + '左の ' + DIM_LABEL[gdim] + ' のリストで、見比べたいものだけにチェックを絞ってください。');
+        + '「' + DIM_LABEL[gdim] + '」のリストで、見比べたいものだけにチェックを絞ってください。');
     } else {
       drawGroupChart(dg);
     }
