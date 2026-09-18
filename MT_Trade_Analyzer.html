@@ -182,20 +182,28 @@
   #groupTable tbody tr.drillable:hover .dchev{color:var(--accent)}
   .filterbox{width:100%;margin-top:6px}
 
-  /* ---- 統計カード ---- */
-  /* 6枚が1行に収まる幅にする。128pxだと1150px幅で6枚目が折り返した */
-  .stats{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:8px}
-  @media (max-width:1100px){.stats{grid-template-columns:repeat(3,minmax(0,1fr))}}
-  @media (max-width:600px){.stats{grid-template-columns:repeat(2,minmax(0,1fr))}}
+  /* ---- 運用サマリー：数字を目的別に読み分けられるようにする ---- */
+  .stats{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px}
+  @media (max-width:1120px){.stats{grid-template-columns:1fr}}
   .stat-card{background:var(--panel);border:1px solid var(--line);padding:10px 12px;
-             border-radius:9px}
+             border-radius:5px}
+  .metric-group{background:var(--panel);border:1px solid var(--line);border-top:3px solid var(--accent);
+                padding:14px;border-radius:5px}
+  .metric-group.risk{border-top-color:var(--neg)}
+  .metric-group.stability{border-top-color:var(--accent-2)}
+  .metric-group h3{margin:0;font-size:13px}
+  .metric-group .hint{margin-top:2px}
+  .metric-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:7px;margin-top:12px}
+  .metric-grid .stat-card{padding:9px 10px;background:#fbfcfe}
   .stat-card .label{font-size:11px;color:var(--sub);
-                    display:flex;align-items:center;justify-content:center;gap:4px}
+                    display:flex;align-items:center;justify-content:flex-start;gap:4px}
   .stat-card .i{display:inline-flex;align-items:center;justify-content:center;
                 width:13px;height:13px;border-radius:50%;border:1px solid #cbd2dc;
                 color:var(--sub);font-size:9px;cursor:help;flex:0 0 auto}
-  .stat-card .value{font-size:19px;font-weight:700;margin-top:2px;
+  .stat-card .value{font-size:18px;font-weight:700;margin-top:3px;
                     white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .stat-card .detail{font-size:10.5px;color:var(--sub);margin-top:3px;white-space:nowrap;
+                     overflow:hidden;text-overflow:ellipsis}
 
   #chart-container{position:relative;height:400px}
 
@@ -2755,8 +2763,78 @@ function stats(trades, key) {
   return {
     net: bal, maxDD: maxDD, winRate: dec ? wins / dec * 100 : 0,
     pf: gl > 0 ? gp / gl : (gp > 0 ? Infinity : 0),
-    n: trades.length, avg: bal / trades.length, equity: equity, dates: dates
+    n: trades.length, avg: bal / trades.length, grossProfit: gp, grossLoss: gl,
+    peak: peak, equity: equity, dates: dates
   };
+}
+
+/* 運用判断に使う補助指標。すべて現在の絞り込み後の取引だけで計算する。 */
+function maxLossStreak(trades, key) {
+  var streak = 0, max = 0;
+  for (var i = 0; i < trades.length; i++) {
+    var value = key === 'pips' ? trades[i].pips : trades[i].profit;
+    if (typeof value !== 'number') continue;
+    if (value < 0) { streak++; if (streak > max) max = streak; }
+    else if (value > 0) streak = 0;
+  }
+  return max;
+}
+
+function profitStdDev(trades, key, mean) {
+  var values = trades.map(function (t) { return key === 'pips' ? t.pips : t.profit; })
+    .filter(function (v) { return typeof v === 'number'; });
+  if (!values.length) return null;
+  var total = 0;
+  values.forEach(function (v) { total += Math.pow(v - mean, 2); });
+  return Math.sqrt(total / values.length);
+}
+
+function recentTrades(trades) {
+  var dates = trades.map(ymd).filter(Boolean).sort();
+  if (!dates.length) return [];
+  var last = new Date(dates[dates.length - 1] + 'T00:00:00');
+  last.setDate(last.getDate() - 29);
+  var cutoff = last.toISOString().slice(0, 10);
+  return trades.filter(function (t) { return ymd(t) >= cutoff; });
+}
+
+function metricGroup(title, subtitle, kind, cards) {
+  return '<section class="metric-group ' + kind + '"><h3>' + title + '</h3>'
+    + '<div class="hint">' + subtitle + '</div><div class="metric-grid">'
+    + cards.join('') + '</div></section>';
+}
+
+function dashboardMetrics(trades, s, key, fmt, suffix) {
+  var metricTrades = key === 'pips' ? trades.filter(function (t) {
+    return typeof t.pips === 'number';
+  }) : trades;
+  var recent = recentTrades(metricTrades);
+  var recentStats = stats(recent, key);
+  var ddRate = s.peak > 0 ? s.maxDD / s.peak * 100 : null;
+  var recovery = s.maxDD > 0 ? s.net / s.maxDD : null;
+  var spread = profitStdDev(trades, key, s.avg);
+  var recentDiff = recentStats ? recentStats.avg - s.avg : null;
+  var avgLabel = key === 'pips' ? '平均pips' : '平均損益';
+  var netLabel = key === 'pips' ? '合計pips' : '純損益';
+  return metricGroup('収益性', '利益を生み出せているか', 'profit', [
+    card(netLabel, fmt(s.net) + suffix, cls(s.net)),
+    card('PF', pfStr(s.pf), s.pf >= 1 ? 'positive' : 'negative'),
+    card(avgLabel, fmt(s.avg) + suffix, cls(s.avg)),
+    card('総利益', fmt(s.grossProfit) + suffix, 'positive')
+  ]) + metricGroup('リスク', '損失の深さと回復力', 'risk', [
+    card('最大DD', fmt(s.maxDD) + suffix, ''),
+    card('DD率', ddRate === null ? '—' : ddRate.toFixed(1) + '%',
+         ddRate === null ? '' : (ddRate > 20 ? 'negative' : '')),
+    card('最大連敗', maxLossStreak(metricTrades, key) + ' 回', ''),
+    card('回復係数', recovery === null ? '—' : recovery.toFixed(2),
+         recovery === null ? '' : cls(recovery))
+  ]) + metricGroup('安定性', '成績の再現性と直近の変化', 'stability', [
+    card('勝率', s.winRate.toFixed(1) + '%', ''),
+    card('取引数', String(s.n), ''),
+    card('損益のばらつき', spread === null ? '—' : fmt(spread) + suffix, ''),
+    card('直近30日平均との差', recentDiff === null ? '—' : fmt(recentDiff) + suffix,
+         recentDiff === null ? '' : cls(recentDiff), recent.length + ' 件で比較')
+  ]);
 }
 
 /* 金額は桁区切りを入れる。4321932.00 のままでは桁が読めず、
@@ -2780,19 +2858,26 @@ var STAT_HELP = {
   '取引数': '選択中の取引件数',
   '平均損益': '1取引あたりの平均損益',
   '平均pips': '1取引あたりの平均pips',
+  '総利益': '利益になった取引だけを合計した値',
+  'DD率': '最大DD ÷ 累積損益の最高値。累積損益が一度もプラスになっていない場合は算出しません',
+  '最大連敗': '損失取引が連続した最大回数。損益0の取引は連敗を継続させます',
+  '回復係数': '純損益 ÷ 最大DD。大きいほどDDに対して利益を回復できています',
+  '損益のばらつき': '取引損益の標準偏差。小さいほど取引ごとの成績が均一です',
+  '直近30日平均との差': '最新取引日から30日間の平均損益と、選択期間全体の平均損益との差',
   '開始残高': '期間の開始時点の口座残高（それ以前の入出金と確定損益の合計）',
   '終了残高': '期間の終了時点の口座残高',
   '入出金': '期間中の入金と出金の差引き。プラスなら入金超過',
   'リターン率': '純損益 ÷（開始残高＋期間中の入金）。期間中に投じた資金に対する損益の割合'
 };
 
-function card(label, value, klass) {
+function card(label, value, klass, detail) {
   var help = STAT_HELP[label];
   return '<div class="stat-card">'
     + '<div class="label">' + label
     + (help ? '<span class="i" title="' + esc(help) + '">i</span>' : '')
     + '</div>'
-    + '<div class="value' + (klass ? ' ' + klass : '') + '">' + value + '</div></div>';
+    + '<div class="value' + (klass ? ' ' + klass : '') + '">' + value + '</div>'
+    + (detail ? '<div class="detail">' + esc(detail) + '</div>' : '') + '</div>';
 }
 
 /* ------------------------------------------------------------ 列ソート
@@ -2862,7 +2947,6 @@ function render() {
   var unit = document.getElementById('unit').value;      /* 'profit' or 'pips' */
   var isPips = unit === 'pips';
   var s = stats(trades, unit);
-  var sMoney = stats(trades, 'profit');
   document.getElementById('tradeCount').textContent = trades.length + ' 件';
 
   /* 0件のとき「データなし」だけだと、絞り込みで消えたのか
@@ -2901,13 +2985,7 @@ function render() {
     ? '<div class="stat-card">pipsを計算できる取引がありません（価格列が必要です）</div>'
     : !s
       ? '<div class="stat-card">データなし</div>'
-      : card(isPips ? '合計pips' : '純損益', fmt(s.net) + suffix, cls(s.net))
-        + card('最大DD', fmt(s.maxDD) + suffix, '')
-        + card('勝率', s.winRate.toFixed(1) + '%', '')
-        + card('PF', pfStr(s.pf), '')
-        + card('取引数', String(s.n), '')
-        + card(isPips ? '平均pips' : '平均損益', fmt(s.avg) + suffix, cls(s.avg))
-        + cashCards(sMoney);
+      : dashboardMetrics(trades, s, unit, fmt, suffix);
 
   /* 入出金を読み込んでいれば「口座残高」に切り替えられる。
      累積損益カーブは0始まりだが、残高カーブは実際の口座残高を描く。 */
