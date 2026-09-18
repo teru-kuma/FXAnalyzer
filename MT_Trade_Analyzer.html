@@ -7,8 +7,8 @@
 <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 <style>
   :root{
-    --bg:#f4f6f9; --panel:#fff; --line:#e2e6ec; --ink:#1c2430; --sub:#6b7684;
-    --accent:#2563eb; --pos:#0a8f3c; --neg:#c62828; --warn:#8a5300; --warnbg:#fff6e0;
+    --bg:#f3f6fa; --panel:#fff; --line:#d9e1eb; --ink:#17233a; --sub:#64748b;
+    --accent:#274690; --accent-2:#5b49a8; --pos:#12805c; --neg:#c5443c; --warn:#9a5a13; --warnbg:#fff5df;
   }
   *{box-sizing:border-box}
   /* hidden 属性は既定が display:none だが、author側で display を指定した要素
@@ -20,10 +20,10 @@
   html,body{height:100%}
   body{font-family:"Segoe UI","Hiragino Kaku Gothic ProN","Yu Gothic UI",sans-serif;
        margin:0;background:var(--bg);color:var(--ink);font-size:14px;overflow:hidden}
-  .page{max-width:1500px;margin:0 auto;padding:14px 18px;height:100%;
+  .page{max-width:1600px;margin:0 auto;padding:0 24px;height:100%;
         display:flex;flex-direction:column}
-  .page-head{margin-bottom:12px;flex:0 0 auto}
-  .head-row{display:flex;align-items:flex-start;gap:12px}
+  .page-head{margin-bottom:0;flex:0 0 auto;border-bottom:1px solid var(--line);background:var(--panel)}
+  .head-row{display:flex;align-items:center;gap:18px;min-height:64px}
   .head-left{flex:1 1 auto;min-width:0}
   /* 注意書きの開閉ボタン。件数を出して中身があることを示す */
   .notice-chip{flex:0 0 auto;background:var(--warnbg);border:1px solid #e8cf94;
@@ -31,26 +31,27 @@
                cursor:pointer;white-space:nowrap}
   .notice-chip:hover{background:#fdf0d0;border-color:#dcbb72}
   #noticeBody{margin-top:8px}
-  h1{margin:0 0 2px;font-size:21px}
+  h1{margin:0 0 2px;font-size:18px;letter-spacing:-.02em}
   .ver{font-size:12px;color:var(--sub);font-weight:normal}
   h2{margin:0 0 8px;font-size:12px;letter-spacing:.04em;color:var(--sub);
      text-transform:uppercase;font-weight:700}
   h3{margin:0 0 10px;font-size:14px}
   .hint{font-size:11.5px;color:var(--sub);line-height:1.6}
 
-  /* ---- 2カラム。左は固定幅で常に見える絞り込み、右が結果 ---- */
-  .layout{display:grid;grid-template-columns:264px minmax(0,1fr);gap:16px;
-          flex:1 1 auto;min-height:0}
+  /* ---- 分析ワークスペース。条件指定は常時領域を奪わず右パネルから開く ---- */
+  .layout{display:block;flex:1 1 auto;min-height:0}
   /* overscroll-behavior:contain で、端まで来ても隣のペインへスクロールが伝播しない */
   /* 中身は省略表示で収まる作りなので、横スクロールは出さない（保険） */
   /* scrollbar-gutter でスクロールバーの有無による幅の変動を無くす */
-  .side{display:flex;flex-direction:column;gap:12px;
+  .side{position:fixed;z-index:20;top:0;right:0;width:min(390px,100vw);height:100vh;
+        display:flex;flex-direction:column;gap:12px;padding:76px 18px 18px;
+        background:var(--bg);border-left:1px solid var(--line);box-shadow:-16px 0 32px rgba(23,35,58,.12);
         overflow-y:auto;overflow-x:hidden;overscroll-behavior:contain;
-        scrollbar-gutter:stable;
-        min-height:0;padding-right:4px}
+        transform:translateX(102%);transition:transform .2s ease}
+  .side.open{transform:translateX(0)}
   .main{display:flex;flex-direction:column;gap:14px;min-width:0;
         overflow-y:auto;overscroll-behavior:contain;min-height:0;
-        padding-right:4px;padding-bottom:24px}
+        height:100%;padding:22px 0 28px}
   #results{display:flex;flex-direction:column;gap:14px;min-height:0}
   /* 空の要素が gap の分だけ場所を取り、左右で開始位置がずれるのを防ぐ */
   .stats:empty{display:none}
@@ -66,6 +67,27 @@
                padding:12px 13px}
   .panel:empty{display:none}
   .card{padding:14px 16px}
+  .top-nav{display:flex;align-items:center;gap:2px;min-width:0;overflow-x:auto}
+  .top-nav button{border:0;border-radius:0;background:transparent;padding:22px 11px 18px;
+                   color:var(--sub);font-weight:600;white-space:nowrap}
+  .top-nav button:hover{background:#f5f7fb;color:var(--ink)}
+  .top-nav button.on{color:var(--accent);box-shadow:inset 0 -3px 0 var(--accent)}
+  .top-actions{margin-left:auto;display:flex;gap:7px;align-items:center;white-space:nowrap}
+  .top-actions button{border-radius:5px;padding:7px 10px;font-weight:600}
+  .top-actions .primary{background:var(--accent);border-color:var(--accent);color:#fff}
+  .top-actions .primary:hover{background:#1f3978}
+  .drawer-close{position:absolute;top:18px;right:18px;border:0;background:transparent;font-size:19px;color:var(--sub)}
+  .drawer-title{position:absolute;top:22px;left:18px;margin:0;font-size:13px;letter-spacing:.08em;color:var(--sub)}
+  .drawer-backdrop{position:fixed;inset:0;z-index:19;background:rgba(23,35,58,.26);opacity:0;pointer-events:none;transition:opacity .2s}
+  .drawer-backdrop.open{opacity:1;pointer-events:auto}
+  .view-head{display:flex;justify-content:space-between;gap:20px;align-items:flex-start}
+  .view-head h2{margin:0 0 3px;font-size:19px;letter-spacing:-.01em;text-transform:none;color:var(--ink)}
+  .view-head .hint{max-width:680px}
+  .active-filters{display:flex;align-items:center;gap:6px;flex-wrap:wrap;min-height:25px;margin-top:10px}
+  .filter-label{font-size:11px;color:var(--sub);font-weight:700;letter-spacing:.04em}
+  .filter-chip{border:1px solid #cbd8ee;background:#f5f8ff;color:#39517f;border-radius:999px;padding:3px 8px;font-size:11.5px}
+  .stat-card{border-radius:5px}
+  .stat-card .value,.num{font-family:Consolas,"Cascadia Mono","SFMono-Regular",monospace}
 
   select,button,input[type=text],input[type=date]{
     padding:5px 8px;border:1px solid var(--line);border-radius:5px;
@@ -259,9 +281,10 @@
     html,body{height:auto}
     body{overflow:auto}
     .page{height:auto;display:block}
-    .layout{grid-template-columns:1fr;display:block}
-    .side,.main{overflow:visible;min-height:0;display:block}
-    .side > *,.main > *{margin-bottom:12px}
+    .layout{display:block}
+    .main{height:auto;overflow:visible;min-height:0;display:block}
+    .main > *{margin-bottom:12px}
+    .side{padding-top:76px;display:flex}
 
     /* 表は列数が多く、画面幅に押し込むと全列が「…」になって読めない。
        最低幅を持たせて横スクロールに逃がす。
@@ -279,6 +302,10 @@
     .seg button{padding:8px 2px}
     .navrow button{padding:7px 0}
     .tabs button{padding:9px 12px}
+    .top-nav button{padding:18px 9px 15px;font-size:12px}
+    .head-row{gap:8px;min-height:56px}
+    .head-left{display:none}
+    .top-actions button{padding:6px 8px;font-size:12px}
   }
 
   /* タッチ操作の端末（スマホ・タブレット）ではドラッグ&ドロップができないので、
@@ -295,8 +322,20 @@
   <header class="page-head">
     <div class="head-row">
       <div class="head-left">
-        <h1>MT4 / MT5 Trade Analyzer <span class="ver">v0.8</span></h1>
+        <h1>EA Performance Lab <span class="ver">v0.9</span></h1>
         <div class="hint" id="headMeta">完全クライアントサイド動作（読み込んだデータは外部へ送信されません）</div>
+      </div>
+      <nav class="top-nav" id="topNav" aria-label="主要画面">
+        <button data-tab="home" class="on">ホーム</button>
+        <button data-tab="group">EA分析</button>
+        <button data-tab="compare">比較</button>
+        <button data-tab="trades">取引履歴</button>
+        <button data-tab="portfolio">ポートフォリオ</button>
+        <button data-tab="data">データ管理</button>
+      </nav>
+      <div class="top-actions">
+        <button id="filterToggle">絞り込み</button>
+        <button id="dataToggle" class="primary">＋ データ追加</button>
       </div>
       <!-- 注意書きは既定で畳んでおく。常時展開しておくと
            グラフや数値が画面のずっと下へ押し下げられるため。 -->
@@ -306,8 +345,11 @@
   </header>
 
   <div class="layout">
-    <!-- ============ 左サイドバー: 読み込みと絞り込み ============ -->
+    <div class="drawer-backdrop" id="drawerBackdrop"></div>
+    <!-- ============ 操作パネル: データ追加と絞り込み ============ -->
     <aside class="side">
+      <h2 class="drawer-title">データと絞り込み</h2>
+      <button class="drawer-close" id="drawerClose" aria-label="閉じる">×</button>
       <section class="panel">
         <h2>データ</h2>
         <label class="filebtn">
@@ -360,42 +402,42 @@
     <!-- ============ 右メイン: 結果 ============ -->
     <main class="main">
       <div class="card" id="emptyState">
-        <h3>ファイルを読み込んでください</h3>
+        <h3>運用データを追加してください</h3>
         <div class="hint">
-          「ファイルを読み込む」から、MT4/MT5のHTMLレポート、または
+          右上の「＋ データ追加」から、MT4/MT5のHTMLレポート、または
           ExportHistoryTSV が出力したTSVを選んでください。<span class="drop-only">画面のどこにドロップしても読み込めます。</span>
         </div>
       </div>
 
       <div id="results" hidden>
+      <div class="view-head">
+        <div>
+          <h2 id="viewTitle">運用ホーム</h2>
+          <div class="hint" id="viewSubtitle">運用全体の状態を確認し、次に見るべきEAを見つけます。</div>
+        </div>
+      </div>
+      <div class="active-filters" id="activeFilters"></div>
       <div class="crumbs" id="crumbs"></div>
       <div class="banner warn" id="noMatch" hidden></div>
-      <div class="stats" id="stats"></div>
-      <div class="card">
-        <!-- 入出金を読み込んでいるときだけ「口座残高」を選べる -->
-        <div class="seg chartseg" id="chartMode" hidden>
-          <button data-cm="pl" class="on">累積損益</button>
-          <button data-cm="bal">口座残高</button>
-          <button data-cm="grp">EA名別</button>
+      <section class="tabpane" data-pane="home">
+        <div class="stats" id="stats"></div>
+        <div class="card">
+          <!-- 入出金を読み込んでいるときだけ「口座残高」を選べる -->
+          <div class="seg chartseg" id="chartMode" hidden>
+            <button data-cm="pl" class="on">累積損益</button>
+            <button data-cm="bal">口座残高</button>
+            <button data-cm="grp">EA名別</button>
+          </div>
+          <div id="chart-container">
+            <canvas id="equityChart"></canvas>
+            <!-- 重ね表示の本数が多すぎるときなど、グラフの代わりに案内を出す -->
+            <div class="chart-overlay" id="chartOverlay" hidden></div>
+          </div>
         </div>
-        <div id="chart-container">
-          <canvas id="equityChart"></canvas>
-          <!-- 重ね表示の本数が多すぎるときなど、グラフの代わりに案内を出す -->
-          <div class="chart-overlay" id="chartOverlay" hidden></div>
-        </div>
-      </div>
+      </section>
 
-      <div class="tabs" id="tabs">
-        <button data-tab="group" class="on">集計</button>
-        <button data-tab="trades">取引一覧</button>
-        <button data-tab="compare">比較</button>
-        <button data-tab="cash" id="tabCash" hidden>入出金</button>
-        <button data-tab="map">EA名の対応表</button>
-        <button data-tab="diag">診断</button>
-      </div>
-
-      <section class="card tabpane" data-pane="group">
-        <h3>集計 <span id="groupCount" class="tag"></span>
+      <section class="card tabpane" data-pane="group" hidden>
+        <h3>EA評価ボード <span id="groupCount" class="tag"></span>
           <button id="csvGroups" style="float:right">CSVで書き出し</button></h3>
         <div class="hint" id="groupNote"></div>
         <div class="scrollnote">表は横にスクロールできます</div>
@@ -449,7 +491,7 @@
 
       <section class="card tabpane" data-pane="compare" hidden>
         <div class="card-head">
-          <h3>比較</h3><span id="cmpCount" class="tag"></span>
+          <h3 id="compareTitle">EA比較</h3><span id="cmpCount" class="tag"></span>
         </div>
         <div class="hint" id="cmpNote"></div>
         <div id="cmpBody" hidden>
@@ -487,7 +529,7 @@
       </section>
 
       <section class="card tabpane" data-pane="map" hidden>
-        <h3>EA名の対応表 <span id="mapCount" class="tag"></span></h3>
+        <h3>データ管理：EA名の対応表 <span id="mapCount" class="tag"></span></h3>
         <div class="hint">
           マジックごとにEA名を手で指定できます。空欄にすると自動判定に戻ります。
           マジック <code>0</code> は「マジックが取れなかった取引」のまとめ行なので、
@@ -587,7 +629,7 @@ var state = { trades: [], sources: [], diag: null, chart: null,
               chartMode: 'pl',   /* pl=累積損益 / bal=口座残高 */
               activeDim: 'ea',   /* いま絞り込みと集計に使っている軸 */
               drill: [],         /* 掘り下げて固定した軸 [{dim,value}] */
-              page: 0, tab: 'group', lastSig: '' };
+              page: 0, tab: 'home', lastSig: '' };
 
 /* ------------------------------------------- EA名の手動指定（マジック単位）
    自動判定はどこまで行っても推測なので、最後は手で決められるようにする。
@@ -688,6 +730,23 @@ function on(id, ev, fn) {
 
 /* ---------------------------------------------------------- ファイル読み込み */
 var drop = document.getElementById('drop');
+function openDrawer(focusId) {
+  var side = document.querySelector('.side');
+  side.classList.add('open');
+  document.getElementById('drawerBackdrop').classList.add('open');
+  if (focusId) {
+    var target = document.getElementById(focusId);
+    if (target) target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }
+}
+function closeDrawer() {
+  document.querySelector('.side').classList.remove('open');
+  document.getElementById('drawerBackdrop').classList.remove('open');
+}
+on('filterToggle', 'click', function () { openDrawer('periodSeg'); });
+on('dataToggle', 'click', function () { openDrawer('fileInput'); });
+on('drawerClose', 'click', closeDrawer);
+on('drawerBackdrop', 'click', closeDrawer);
 on('fileInput', 'change', function (e) {
   if (e.target.files.length) loadFiles(Array.from(e.target.files));
   e.target.value = '';   /* 同じファイルを選び直せるようにする */
@@ -1587,8 +1646,6 @@ function sourceTotals() {
 /* 入出金の一覧。残高列はその時点の口座残高を出す。 */
 function renderCashTable() {
   var rows = filteredCash();
-  var tab = document.getElementById('tabCash');
-  tab.hidden = !state.cash.length;
 
   document.getElementById('cashCount').textContent = rows.length + ' 件';
   var series = balanceSeries();
@@ -2177,6 +2234,31 @@ function renderLists() {
   LISTS.forEach(renderList);
 }
 
+/* 本文には、現在結果へ効いている条件だけを短いチップで残す。
+   条件そのものの編集は右パネルに集約し、分析表の横幅を確保する。 */
+function renderActiveFilters() {
+  var el = document.getElementById('activeFilters');
+  if (!el) return;
+  if (!state.sources.length) { el.innerHTML = ''; return; }
+  var chips = [];
+  var from = document.getElementById('dateFrom').value;
+  var to = document.getElementById('dateTo').value;
+  chips.push('期間: ' + (from || '全期間') + (to ? ' 〜 ' + to : ''));
+  LISTS.forEach(function (spec) {
+    var vals = listValues(spec);
+    var sel = state.sel[spec.key];
+    if (!sel || !vals.length || sel.size === vals.length) return;
+    var names = Array.from(sel).slice(0, 2).map(function (v) {
+      return dimLabelOf(spec.key, v);
+    });
+    var more = sel.size > 2 ? ' ほか' + (sel.size - 2) + '件' : '';
+    chips.push(spec.title + ': ' + names.join('、') + more);
+  });
+  if (!document.getElementById('inclOpen').checked) chips.push('未決済を除外');
+  el.innerHTML = '<span class="filter-label">適用中</span>'
+    + chips.map(function (x) { return '<span class="filter-chip">' + esc(x) + '</span>'; }).join('');
+}
+
 /* details の開閉を覚える。再描画で閉じてしまうと使い物にならない */
 document.querySelector('.side').addEventListener('toggle', function (e) {
   var el = e.target;
@@ -2185,20 +2267,38 @@ document.querySelector('.side').addEventListener('toggle', function (e) {
   }
 }, true);
 
-/* ------------------------------------------------------------------ タブ
-   集計・取引一覧・対応表・診断を切り替える。
-   4つを縦に並べていたときは、同時に4つのスクロール領域が存在していた。 */
+/* ------------------------------------------------------------------ 画面
+   主目的ごとに上部ナビゲーションで切り替える。データ追加と絞り込みは
+   分析面積を奪わない右パネルに置き、適用中の条件だけを本文に常時表示する。 */
+var VIEW_META = {
+  home:      { title: '運用ホーム', subtitle: '運用全体の状態を確認し、次に見るべきEAを見つけます。' },
+  group:     { title: 'EA分析', subtitle: 'EAごとの成績を比較し、継続・観察・改善の判断材料を確認します。' },
+  compare:   { title: 'EA比較', subtitle: '選択したEAの連動性と、損失日の重なりを確認します。' },
+  trades:    { title: '取引履歴', subtitle: '個々の取引を絞り込み、成績の背景を確認します。' },
+  portfolio: { title: 'ポートフォリオ', subtitle: 'EAの組み合わせによる集中リスクと相関を確認します。' },
+  data:      { title: 'データ管理', subtitle: '読み込む口座データと、マジック番号・EA名の対応を管理します。' }
+};
 function showTab(name) {
   state.tab = name;
-  Array.from(document.querySelectorAll('#tabs button')).forEach(function (b) {
+  Array.from(document.querySelectorAll('#topNav button')).forEach(function (b) {
     b.className = (b.dataset.tab === name) ? 'on' : '';
   });
   Array.from(document.querySelectorAll('.tabpane')).forEach(function (p) {
-    p.hidden = (p.dataset.pane !== name);
+    var pane = p.dataset.pane;
+    p.hidden = name === 'portfolio' ? pane !== 'compare'
+      : name === 'data' ? (pane !== 'map' && pane !== 'diag')
+      : name === 'trades' ? (pane !== 'trades' && pane !== 'cash')
+      : pane !== name;
   });
+  var meta = VIEW_META[name] || VIEW_META.home;
+  document.getElementById('viewTitle').textContent = meta.title;
+  document.getElementById('viewSubtitle').textContent = meta.subtitle;
+  var compareTitle = document.getElementById('compareTitle');
+  if (compareTitle) compareTitle.textContent = name === 'portfolio' ? 'ポートフォリオの連動リスク' : 'EA比較';
+  document.querySelector('.main').scrollTop = 0;
 }
 
-on('tabs', 'click', function (e) {
+on('topNav', 'click', function (e) {
   var t = e.target.dataset ? e.target.dataset.tab : null;
   if (t) showTab(t);
 });
@@ -3000,6 +3100,7 @@ function render() {
       + '<td title="' + esc(t.raw) + '">' + rawCell + '</td>'
       + '</tr>';
   }).join('') || '<tr><td colspan="11">データなし</td></tr>';
+  renderActiveFilters();
 }
 
 /* -------------------------------------------------- EA名の対応表（編集） */
