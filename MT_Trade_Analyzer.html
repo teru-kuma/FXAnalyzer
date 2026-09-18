@@ -186,7 +186,7 @@
   .stats{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px}
   @media (max-width:1120px){.stats{grid-template-columns:1fr}}
   .stat-card{background:var(--panel);border:1px solid var(--line);padding:10px 12px;
-             border-radius:5px}
+             border-radius:5px;position:relative}
   .metric-group{background:var(--panel);border:1px solid var(--line);border-top:3px solid var(--accent);
                 padding:14px;border-radius:5px}
   .metric-group.risk{border-top-color:var(--neg)}
@@ -199,11 +199,26 @@
                     display:flex;align-items:center;justify-content:flex-start;gap:4px}
   .stat-card .i{display:inline-flex;align-items:center;justify-content:center;
                 width:13px;height:13px;border-radius:50%;border:1px solid #cbd2dc;
-                color:var(--sub);font-size:9px;cursor:help;flex:0 0 auto}
+                color:var(--sub);font-size:9px;cursor:pointer;flex:0 0 auto;padding:0;
+                background:#fff;font:inherit;font-weight:700}
+  .stat-card .i:hover,.stat-card .i:focus{color:var(--accent);border-color:var(--accent);outline:none}
+  .metric-help{position:fixed;z-index:40;width:min(310px,calc(100vw - 28px));
+               background:#17233a;color:#f8fafc;border:1px solid #334866;border-radius:6px;
+               box-shadow:0 12px 30px rgba(23,35,58,.24);padding:12px 34px 12px 13px;
+               font-size:12px;line-height:1.6}
+  .metric-help strong{display:block;font-size:12px;margin-bottom:3px}
+  .metric-help button{position:absolute;right:8px;top:7px;border:0;background:transparent;color:#cbd5e1;
+                      font-size:18px;padding:2px 5px;line-height:1}
+  .metric-help button:hover{color:#fff;background:#334866}
   .stat-card .value{font-size:18px;font-weight:700;margin-top:3px;
                     white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
   .stat-card .detail{font-size:10.5px;color:var(--sub);margin-top:3px;white-space:nowrap;
                      overflow:hidden;text-overflow:ellipsis}
+  .account-snapshot{padding:14px 16px}
+  .account-snapshot h3{margin-bottom:3px}
+  .account-snapshot .tbl{margin-top:10px}
+  .account-snapshot td:first-child{font-weight:600}
+  .account-snapshot .balance-note{margin-top:8px}
 
   #chart-container{position:relative;height:400px}
 
@@ -302,6 +317,7 @@
     #groupTable{min-width:760px}
     #mapTable{min-width:700px}
     #corrTable,#worstTable{min-width:640px}
+    #accountTable{min-width:720px}
     #srcTable{min-width:0}
     .scrollnote{display:block}
 
@@ -429,6 +445,20 @@
       <div class="banner warn" id="noMatch" hidden></div>
       <section class="tabpane" data-pane="home">
         <div class="stats" id="stats"></div>
+        <section class="card account-snapshot" id="accountSnapshot">
+          <h3>口座スナップショット</h3>
+          <div class="hint">口座ごとの損益・推定残高を、他口座と混ぜずに確認します。</div>
+          <div class="scrollnote">表は横にスクロールできます</div>
+          <div class="tbl">
+            <table id="accountTable">
+              <thead><tr>
+                <th>口座（ソース）</th><th class="num">期間損益</th><th class="num">推定残高</th>
+                <th class="num">入出金</th><th class="num">最大DD</th>
+              </tr></thead><tbody></tbody>
+            </table>
+          </div>
+          <div class="hint balance-note" id="accountBalanceNote"></div>
+        </section>
         <div class="card">
           <!-- 入出金を読み込んでいるときだけ「口座残高」を選べる -->
           <div class="seg chartseg" id="chartMode" hidden>
@@ -580,6 +610,11 @@
 
     </main>
   </div>
+</div>
+<div class="metric-help" id="metricHelp" role="status" hidden>
+  <strong id="metricHelpTitle"></strong>
+  <span id="metricHelpText"></span>
+  <button id="metricHelpClose" type="button" aria-label="説明を閉じる">×</button>
 </div>
 
 <script>
@@ -1959,17 +1994,21 @@ function renderCompare(trades, dim, unit) {
    残高 = それまでの入出金の合計 + それまでの確定損益の合計。
    履歴が口座開設時から揃っていれば実際の残高と一致する。
    期間を絞って書き出した履歴では、開始時点が0の相対値になる。 */
-function balanceSeries() {
+function balanceSeries(source) {
   var ev = [];
-  state.cash.forEach(function (c) {
-    if (c.ymd) ev.push({ ymd: c.ymd, v: c.amount });
-  });
-  /* ソース絞り込みは効かせる。口座をまたぐと残高の意味が無くなるため */
   var selSrc = state.sel.source;
+  /* source を明示した場合はその口座だけ、指定しない場合は画面のソース選択に従う。 */
+  function allowed(sourceName) {
+    if (source !== undefined && source !== null) return sourceName === source;
+    return !selSrc || selSrc.has(sourceName || '-');
+  }
+  state.cash.forEach(function (c) {
+    if (c.ymd && allowed(c.source)) ev.push({ ymd: c.ymd, v: c.amount });
+  });
   state.trades.forEach(function (t) {
     var d = ymd(t);
     if (!d || !t.closed) return;
-    if (selSrc && !selSrc.has(t.source || '-')) return;
+    if (!allowed(t.source)) return;
     ev.push({ ymd: d, v: t.profit });
   });
   ev.sort(function (a, b) { return a.ymd.localeCompare(b.ymd); });
@@ -2013,6 +2052,42 @@ function filteredCash() {
     if (selSrc && !selSrc.has(c.source || '-')) return false;
     return true;
   });
+}
+
+/* ホームの口座一覧。ソース名は history_<口座番号>_... のファイル名なら口座番号になる。
+   口座通貨が違っても金額を合算せず、各行で独立して計算する。 */
+function renderAccountSnapshot() {
+  var labels = uniq(state.sources.map(function (s) { return s.label || '-'; }));
+  var selected = state.sel.source;
+  if (selected) labels = labels.filter(function (label) { return selected.has(label); });
+  labels.sort(function (a, b) { return String(a).localeCompare(String(b), 'ja'); });
+
+  var shown = filtered();
+  var to = document.getElementById('dateTo').value;
+  var rows = labels.map(function (label) {
+    var accountTrades = shown.filter(function (t) { return (t.source || '-') === label; });
+    var summary = stats(accountTrades, 'profit');
+    var series = balanceSeries(label);
+    var balance = balanceAt(series, to || '');
+    var cash = filteredCash().reduce(function (sum, c) {
+      return sum + ((c.source || '-') === label ? c.amount : 0);
+    }, 0);
+    return { label: label, summary: summary, balance: balance, cash: cash };
+  });
+
+  document.querySelector('#accountTable tbody').innerHTML = rows.map(function (row) {
+    var s = row.summary;
+    return '<tr><td>' + esc(row.label) + '</td>'
+      + '<td class="num ' + (s ? cls(s.net) : '') + '">' + (s ? fx(s.net) : '—') + '</td>'
+      + '<td class="num ' + cls(row.balance) + '">' + fx(row.balance) + '</td>'
+      + '<td class="num ' + cls(row.cash) + '">' + (row.cash > 0 ? '+' : '') + fx(row.cash) + '</td>'
+      + '<td class="num">' + (s ? fx(s.maxDD) : '—') + '</td></tr>';
+  }).join('') || '<tr><td colspan="5">選択中の口座はありません</td></tr>';
+
+  document.getElementById('accountBalanceNote').textContent =
+    '推定残高 = 読み込み範囲の入出金 + 確定損益（口座ごとに分離）。'
+    + '口座開設時からの履歴と入出金が揃う場合は実残高と一致します。'
+    + (to ? '表示基準日: ' + to + '。' : '表示基準日: 読み込み済みの最終日。');
 }
 
 /* 注意書きはヘッダー右のボタンに畳んでおき、押したときだけ開く。
@@ -2780,15 +2855,6 @@ function maxLossStreak(trades, key) {
   return max;
 }
 
-function profitStdDev(trades, key, mean) {
-  var values = trades.map(function (t) { return key === 'pips' ? t.pips : t.profit; })
-    .filter(function (v) { return typeof v === 'number'; });
-  if (!values.length) return null;
-  var total = 0;
-  values.forEach(function (v) { total += Math.pow(v - mean, 2); });
-  return Math.sqrt(total / values.length);
-}
-
 function recentTrades(trades) {
   var dates = trades.map(ymd).filter(Boolean).sort();
   if (!dates.length) return [];
@@ -2812,8 +2878,6 @@ function dashboardMetrics(trades, s, key, fmt, suffix) {
   var recentStats = stats(recent, key);
   var ddRate = s.peak > 0 ? s.maxDD / s.peak * 100 : null;
   var recovery = s.maxDD > 0 ? s.net / s.maxDD : null;
-  var spread = profitStdDev(trades, key, s.avg);
-  var recentDiff = recentStats ? recentStats.avg - s.avg : null;
   var avgLabel = key === 'pips' ? '平均pips' : '平均損益';
   var netLabel = key === 'pips' ? '合計pips' : '純損益';
   return metricGroup('収益性', '利益を生み出せているか', 'profit', [
@@ -2831,9 +2895,11 @@ function dashboardMetrics(trades, s, key, fmt, suffix) {
   ]) + metricGroup('安定性', '成績の再現性と直近の変化', 'stability', [
     card('勝率', s.winRate.toFixed(1) + '%', ''),
     card('取引数', String(s.n), ''),
-    card('損益のばらつき', spread === null ? '—' : fmt(spread) + suffix, ''),
-    card('直近30日平均との差', recentDiff === null ? '—' : fmt(recentDiff) + suffix,
-         recentDiff === null ? '' : cls(recentDiff), recent.length + ' 件で比較')
+    card('直近30日PF', recentStats ? pfStr(recentStats.pf) : '—',
+         !recentStats ? '' : (recentStats.pf >= 1 ? 'positive' : 'negative'),
+         recentStats ? '最新取引日基準' : ''),
+    card('直近30日取引数', recentStats ? String(recentStats.n) : '—', '',
+         recentStats ? '最新取引日基準' : '')
   ]);
 }
 
@@ -2862,8 +2928,8 @@ var STAT_HELP = {
   'DD率': '最大DD ÷ 累積損益の最高値。累積損益が一度もプラスになっていない場合は算出しません',
   '最大連敗': '損失取引が連続した最大回数。損益0の取引は連敗を継続させます',
   '回復係数': '純損益 ÷ 最大DD。大きいほどDDに対して利益を回復できています',
-  '損益のばらつき': '取引損益の標準偏差。小さいほど取引ごとの成績が均一です',
-  '直近30日平均との差': '最新取引日から30日間の平均損益と、選択期間全体の平均損益との差',
+  '直近30日PF': '最新取引日から30日間のPF。全期間のPFと比べ、最近の収益性が維持できているかを確認します',
+  '直近30日取引数': '最新取引日から30日間の取引数。急な増減はEAの稼働条件や市場環境の変化を確認するきっかけになります',
   '開始残高': '期間の開始時点の口座残高（それ以前の入出金と確定損益の合計）',
   '終了残高': '期間の終了時点の口座残高',
   '入出金': '期間中の入金と出金の差引き。プラスなら入金超過',
@@ -2874,11 +2940,53 @@ function card(label, value, klass, detail) {
   var help = STAT_HELP[label];
   return '<div class="stat-card">'
     + '<div class="label">' + label
-    + (help ? '<span class="i" title="' + esc(help) + '">i</span>' : '')
+    + (help ? '<button type="button" class="i" data-label="' + esc(label)
+      + '" data-help="' + esc(help) + '" aria-label="' + esc(label)
+      + 'の説明を表示" aria-expanded="false">i</button>' : '')
     + '</div>'
     + '<div class="value' + (klass ? ' ' + klass : '') + '">' + value + '</div>'
     + (detail ? '<div class="detail">' + esc(detail) + '</div>' : '') + '</div>';
 }
+
+/* 指標の説明はホバーだけに依存せず、クリック／タップでも読めるようにする。 */
+function closeMetricHelp() {
+  var box = document.getElementById('metricHelp');
+  box.hidden = true;
+  var active = document.querySelector('.stat-card .i[aria-expanded="true"]');
+  if (active) active.setAttribute('aria-expanded', 'false');
+}
+
+function showMetricHelp(button) {
+  var box = document.getElementById('metricHelp');
+  var title = document.getElementById('metricHelpTitle');
+  var text = document.getElementById('metricHelpText');
+  var wasOpen = !box.hidden && title.textContent === button.dataset.label;
+  closeMetricHelp();
+  if (wasOpen) return;
+  title.textContent = button.dataset.label;
+  text.textContent = button.dataset.help;
+  box.hidden = false;
+  button.setAttribute('aria-expanded', 'true');
+  var rect = button.getBoundingClientRect();
+  var left = Math.min(rect.left, window.innerWidth - box.offsetWidth - 14);
+  var top = rect.bottom + 8;
+  if (top + box.offsetHeight > window.innerHeight - 12) top = rect.top - box.offsetHeight - 8;
+  box.style.left = Math.max(14, left) + 'px';
+  box.style.top = Math.max(12, top) + 'px';
+}
+
+on('stats', 'click', function (e) {
+  var button = e.target.closest ? e.target.closest('.i[data-help]') : null;
+  if (button) showMetricHelp(button);
+});
+on('metricHelpClose', 'click', closeMetricHelp);
+document.addEventListener('click', function (e) {
+  if (e.target.closest && (e.target.closest('.i[data-help]') || e.target.closest('#metricHelp'))) return;
+  closeMetricHelp();
+});
+document.addEventListener('keydown', function (e) {
+  if (e.key === 'Escape') closeMetricHelp();
+});
 
 /* ------------------------------------------------------------ 列ソート
    ヘッダーをクリックで並べ替え。同じ列を再度押すと昇順/降順が入れ替わる。
@@ -2943,6 +3051,7 @@ function markSortHeader(tableId) {
 var DIM_LABEL = { ea: 'EA名', magic: 'マジック', symbol: 'シンボル', source: 'ソース' };
 
 function render() {
+  closeMetricHelp();
   var trades = filtered();
   var unit = document.getElementById('unit').value;      /* 'profit' or 'pips' */
   var isPips = unit === 'pips';
@@ -3040,6 +3149,7 @@ function render() {
   }
 
   renderCashTable();
+  renderAccountSnapshot();
   renderCompare(trades, state.activeDim, unit);
 
   /* 集計軸は絞り込みに使っている軸そのもの。
