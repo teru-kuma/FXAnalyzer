@@ -220,7 +220,11 @@
   .account-snapshot td:first-child{font-weight:600}
   .account-snapshot .balance-note{margin-top:8px}
 
-  #chart-container{position:relative;height:400px}
+  #chart-container{position:relative;height:320px}
+  .drawdown-chart{margin-top:16px;padding-top:13px;border-top:1px solid var(--line)}
+  .chart-caption{display:flex;align-items:baseline;justify-content:space-between;gap:12px;margin-bottom:7px}
+  .chart-caption h4{margin:0;font-size:12px;letter-spacing:.04em;color:var(--sub)}
+  #drawdown-container{position:relative;height:140px}
 
   table{width:100%;border-collapse:collapse;font-size:12.5px;table-layout:fixed}
   th,td{border-bottom:1px solid var(--line);padding:5px 8px;text-align:left;
@@ -463,13 +467,19 @@
           <!-- 入出金を読み込んでいるときだけ「口座残高」を選べる -->
           <div class="seg chartseg" id="chartMode" hidden>
             <button data-cm="pl" class="on">累積損益</button>
-            <button data-cm="bal">口座残高</button>
             <button data-cm="grp">EA名別</button>
           </div>
           <div id="chart-container">
             <canvas id="equityChart"></canvas>
             <!-- 重ね表示の本数が多すぎるときなど、グラフの代わりに案内を出す -->
             <div class="chart-overlay" id="chartOverlay" hidden></div>
+          </div>
+          <div class="drawdown-chart">
+            <div class="chart-caption">
+              <h4>ドローダウン推移</h4>
+              <span class="hint">ピークからの下落幅</span>
+            </div>
+            <div id="drawdown-container"><canvas id="drawdownChart"></canvas></div>
           </div>
         </div>
       </section>
@@ -665,11 +675,11 @@ var RE_SPACE = /[ 　]/g;
 var RE_BAD   = /�/g;
 var UNKNOWN_EA = '(不明)';   /* 「(不明)」 */
 
-var state = { trades: [], sources: [], diag: null, chart: null,
+var state = { trades: [], sources: [], diag: null, chart: null, ddChart: null,
               pattern: '', overrides: {},
               sel: {}, known: {}, listQuery: {}, listOpen: {},
               cash: [],          /* 入出金。取引とは別に持つ */
-              chartMode: 'pl',   /* pl=累積損益 / bal=口座残高 */
+              chartMode: 'pl',   /* pl=累積損益 / grp=EA名別 */
               activeDim: 'ea',   /* いま絞り込みと集計に使っている軸 */
               drill: [],         /* 掘り下げて固定した軸 [{dim,value}] */
               page: 0, tab: 'home', lastSig: '' };
@@ -3078,18 +3088,15 @@ function render() {
       ? '<div class="stat-card">データなし</div>'
       : dashboardMetrics(trades, s, unit, fmt, suffix);
 
-  /* 入出金を読み込んでいれば「口座残高」に切り替えられる。
-     累積損益カーブは0始まりだが、残高カーブは実際の口座残高を描く。 */
-  var canBal = state.cash.length > 0 && balanceSeries().length > 0;
-  /* グループ別は集計軸があるときだけ（3軸すべて掘り下げると軸が無くなる） */
+  /* グループ別は集計軸があるときだけ（3軸すべて掘り下げると軸が無くなる）。
+     残高は口座スナップショットで確認し、主グラフはEA成績だけに集中させる。 */
   var gdim = state.activeDim;
   var segEl = document.getElementById('chartMode');
-  segEl.querySelector('[data-cm="bal"]').hidden = !canBal;
   var grpBtn = segEl.querySelector('[data-cm="grp"]');
   grpBtn.hidden = !gdim;
   if (gdim) grpBtn.textContent = DIM_LABEL[gdim] + '別';
-  segEl.hidden = !canBal && !gdim;
-  if (!canBal && state.chartMode === 'bal') state.chartMode = 'pl';
+  segEl.hidden = !gdim;
+  if (state.chartMode === 'bal') state.chartMode = 'pl';
   if (!gdim && state.chartMode === 'grp') state.chartMode = 'pl';
   Array.from(segEl.querySelectorAll('button')).forEach(function (b) {
     b.className = (b.dataset.cm === state.chartMode) ? 'on' : '';
@@ -3100,34 +3107,22 @@ function render() {
     var dg = dailyByGroup(trades, gdim, unit);
     if (!dg.groups.length) {
       drawChart([0], ['']);
+      drawDrawdown([0], [''], fmt);
       chartOverlay('表示できる取引がありません');
     } else if (dg.groups.length > CMP_MAX) {
       /* 全部重ねると読めないので描かない。見たいものを選んでもらう */
       drawChart([0], ['']);
+      drawDrawdown([0], [''], fmt);
       chartOverlay(DIM_LABEL[gdim] + ' が ' + dg.groups.length + ' 件選ばれています。'
         + '重ねて表示できるのは ' + CMP_MAX + ' 件までです。'
         + '「' + DIM_LABEL[gdim] + '」のリストで、見比べたいものだけにチェックを絞ってください。');
     } else {
       drawGroupChart(dg);
-    }
-  } else if (state.chartMode === 'bal') {
-    var from = document.getElementById('dateFrom').value;
-    var to = document.getElementById('dateTo').value;
-    var ser = balanceSeries().filter(function (p) {
-      if (from && p.ymd < from) return false;
-      if (to && p.ymd > to) return false;
-      return true;
-    });
-    if (ser.length) {
-      /* 期間の開始残高を先頭に置き、そこからの動きとして描く */
-      var head = from ? balanceBefore(balanceSeries(), from) : 0;
-      drawChart([head].concat(ser.map(function (p) { return p.bal; })),
-                [ser[0].ymd].concat(ser.map(function (p) { return p.ymd; })));
-    } else {
-      drawChart([0], ['']);
+      drawDrawdown(s ? s.equity : [0], s ? s.dates : [''], fmt);
     }
   } else {
     drawChart(s ? s.equity : [0], s ? s.dates : ['']);
+    drawDrawdown(s ? s.equity : [0], s ? s.dates : [''], fmt);
   }
 
   renderCashTable();
@@ -3461,8 +3456,58 @@ function tickFormatterFor(dates) {
   return function (s) { return s ? s.slice(5) : ''; };                       /* 02-23 */
 }
 
-var POS_LINE = '#0a8f3c', NEG_LINE = '#c62828';
-var POS_FILL = 'rgba(10,143,60,.12)', NEG_FILL = 'rgba(198,40,40,.12)';
+var POS_LINE = '#274690';
+var DD_LINE = '#c5443c', DD_FILL = 'rgba(197,68,60,.16)';
+
+/* 累積曲線から「その時点までの最高値との差」だけを取り出す。
+   0がピーク、負の値ほどそこから深く落ち込んでいることを示す。 */
+function drawdownSeries(values) {
+  var peak = -Infinity;
+  return values.map(function (value) {
+    if (value > peak) peak = value;
+    return value - peak;
+  });
+}
+
+function drawDrawdown(values, dates, formatter) {
+  var cv = document.getElementById('drawdownChart');
+  values = values || [0];
+  dates = dates || [];
+  formatter = formatter || fx;
+  var data = drawdownSeries(values);
+  if (typeof Chart === 'undefined') { drawFallbackDrawdown(cv, data, dates); return; }
+
+  var fmt = tickFormatterFor(dates);
+  if (state.ddChart) state.ddChart.destroy();
+  state.ddChart = new Chart(cv.getContext('2d'), {
+    type: 'line',
+    data: {
+      labels: dates.map(fmt),
+      datasets: [{
+        data: data, borderColor: DD_LINE, backgroundColor: DD_FILL,
+        fill: { target: 'origin' }, tension: 0.1, pointRadius: 0, borderWidth: 1.5
+      }]
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false, animation: false,
+      interaction: { mode: 'index', intersect: false },
+      scales: {
+        x: { display: true, grid: { display: false }, ticks: {
+          autoSkip: true, maxTicksLimit: 8, maxRotation: 0, minRotation: 0,
+          font: { size: 10 }, color: '#65727f'
+        } },
+        y: { max: 0, ticks: { font: { size: 10 }, color: '#65727f' } }
+      },
+      plugins: {
+        legend: { display: false },
+        tooltip: { callbacks: { title: function (items) {
+          var i = items.length ? items[0].dataIndex : 0;
+          return dates[i] || '';
+        }, label: function (item) { return 'DD ' + formatter(item.parsed.y); } } }
+      }
+    }
+  });
+}
 
 function drawChart(equity, dates) {
   var cv = document.getElementById('equityChart');
@@ -3478,15 +3523,9 @@ function drawChart(equity, dates) {
       labels: short,
       datasets: [{
         data: equity,
-        /* 0を境に緑と赤で塗り分ける。含み損の期間が一目で分かる */
         borderColor: POS_LINE,
-        segment: {
-          borderColor: function (ctx) {
-            return (ctx.p0.parsed.y < 0 || ctx.p1.parsed.y < 0) ? NEG_LINE : POS_LINE;
-          }
-        },
-        fill: { target: 'origin', above: POS_FILL, below: NEG_FILL },
-        tension: 0.15, pointRadius: 0, borderWidth: 1.8
+        backgroundColor: 'transparent', fill: false,
+        tension: 0.15, pointRadius: 0, borderWidth: 2
       }]
     },
     options: {
@@ -3566,6 +3605,35 @@ function drawFallback(cv, eq, dates) {
     }
     g.textAlign = 'left';
   }
+}
+
+/* Chart.js が読めない場合も、DDの形と最大値だけは確認できるようにする。 */
+function drawFallbackDrawdown(cv, data, dates) {
+  var dpr = window.devicePixelRatio || 1;
+  var w = cv.clientWidth || 800, h = cv.clientHeight || 140;
+  cv.width = w * dpr;
+  cv.height = h * dpr;
+  var g = cv.getContext('2d');
+  g.setTransform(dpr, 0, 0, dpr, 0, 0);
+  g.clearRect(0, 0, w, h);
+  var min = Math.min.apply(null, data.concat([0]));
+  var span = Math.abs(min) || 1;
+  var X = function (i) { return 44 + i / Math.max(1, data.length - 1) * (w - 54); };
+  var Y = function (v) { return 16 + (-v / span) * (h - 42); };
+  var zero = Y(0);
+  g.strokeStyle = '#dce1e8';
+  g.beginPath(); g.moveTo(44, zero); g.lineTo(w - 10, zero); g.stroke();
+  g.beginPath();
+  data.forEach(function (v, i) { if (i) g.lineTo(X(i), Y(v)); else g.moveTo(X(i), Y(v)); });
+  g.lineTo(X(data.length - 1), zero); g.lineTo(X(0), zero); g.closePath();
+  g.fillStyle = DD_FILL; g.fill();
+  g.strokeStyle = DD_LINE; g.lineWidth = 1.5;
+  g.beginPath();
+  data.forEach(function (v, i) { if (i) g.lineTo(X(i), Y(v)); else g.moveTo(X(i), Y(v)); });
+  g.stroke();
+  g.fillStyle = '#65727f'; g.font = '11px sans-serif';
+  g.fillText('0', 18, zero + 4);
+  g.fillText(min.toFixed(0), 4, Y(min) + 4);
 }
 
 /* ------------------------------------------- 回帰テスト用の内蔵サンプル
