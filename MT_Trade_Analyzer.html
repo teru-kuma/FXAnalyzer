@@ -2855,15 +2855,6 @@ function maxLossStreak(trades, key) {
   return max;
 }
 
-function recentTrades(trades) {
-  var dates = trades.map(ymd).filter(Boolean).sort();
-  if (!dates.length) return [];
-  var last = new Date(dates[dates.length - 1] + 'T00:00:00');
-  last.setDate(last.getDate() - 29);
-  var cutoff = last.toISOString().slice(0, 10);
-  return trades.filter(function (t) { return ymd(t) >= cutoff; });
-}
-
 function metricGroup(title, subtitle, kind, cards) {
   return '<section class="metric-group ' + kind + '"><h3>' + title + '</h3>'
     + '<div class="hint">' + subtitle + '</div><div class="metric-grid">'
@@ -2874,8 +2865,6 @@ function dashboardMetrics(trades, s, key, fmt, suffix) {
   var metricTrades = key === 'pips' ? trades.filter(function (t) {
     return typeof t.pips === 'number';
   }) : trades;
-  var recent = recentTrades(metricTrades);
-  var recentStats = stats(recent, key);
   var ddRate = s.peak > 0 ? s.maxDD / s.peak * 100 : null;
   var recovery = s.maxDD > 0 ? s.net / s.maxDD : null;
   var avgLabel = key === 'pips' ? '平均pips' : '平均損益';
@@ -2892,14 +2881,9 @@ function dashboardMetrics(trades, s, key, fmt, suffix) {
     card('最大連敗', maxLossStreak(metricTrades, key) + ' 回', ''),
     card('回復係数', recovery === null ? '—' : recovery.toFixed(2),
          recovery === null ? '' : cls(recovery))
-  ]) + metricGroup('安定性', '成績の再現性と直近の変化', 'stability', [
+  ]) + metricGroup('取引実績', '現在の条件に含まれる取引の基本情報', 'stability', [
     card('勝率', s.winRate.toFixed(1) + '%', ''),
-    card('取引数', String(s.n), ''),
-    card('直近30日PF', recentStats ? pfStr(recentStats.pf) : '—',
-         !recentStats ? '' : (recentStats.pf >= 1 ? 'positive' : 'negative'),
-         recentStats ? '最新取引日基準' : ''),
-    card('直近30日取引数', recentStats ? String(recentStats.n) : '—', '',
-         recentStats ? '最新取引日基準' : '')
+    card('取引数', String(s.n), '')
   ]);
 }
 
@@ -2928,8 +2912,6 @@ var STAT_HELP = {
   'DD率': '最大DD ÷ 累積損益の最高値。累積損益が一度もプラスになっていない場合は算出しません',
   '最大連敗': '損失取引が連続した最大回数。損益0の取引は連敗を継続させます',
   '回復係数': '純損益 ÷ 最大DD。大きいほどDDに対して利益を回復できています',
-  '直近30日PF': '最新取引日から30日間のPF。全期間のPFと比べ、最近の収益性が維持できているかを確認します',
-  '直近30日取引数': '最新取引日から30日間の取引数。急な増減はEAの稼働条件や市場環境の変化を確認するきっかけになります',
   '開始残高': '期間の開始時点の口座残高（それ以前の入出金と確定損益の合計）',
   '終了残高': '期間の終了時点の口座残高',
   '入出金': '期間中の入金と出金の差引き。プラスなら入金超過',
