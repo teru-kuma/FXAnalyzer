@@ -255,6 +255,7 @@
   .status-select{width:100%;min-width:84px;padding:3px 5px;font-size:11.5px;font-weight:600}
   #mapTable th:nth-child(1){width:12%}
   #mapTable th:nth-child(2),#mapTable th:nth-child(3){width:20%}
+  #mapTable th:nth-child(4){width:12%}
   td.num,th.num{text-align:right}
   th[data-k]{cursor:pointer;user-select:none}
   th[data-k]:hover{color:var(--accent)}
@@ -279,6 +280,14 @@
            white-space:pre-wrap;word-break:break-all}
   .controls{display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin:8px 0;font-size:12.5px}
   #mapTable input[type=text]{padding:2px 6px;font-size:12.5px;width:100%;min-width:140px}
+  #sourceManageTable input[type=text]{padding:2px 6px;font-size:12.5px;width:100%;min-width:130px}
+  .data-section{margin-top:18px;padding-top:16px;border-top:1px solid var(--line)}
+  .data-section h4{margin:0 0 4px;font-size:13px}
+  .data-summary{margin:7px 0 9px}
+  .mapping-state{font-size:11px;font-weight:700}
+  .mapping-state.manual{color:var(--accent)}
+  .mapping-state.needs-review{color:var(--warn)}
+  .mapping-state.auto{color:var(--sub)}
   #srcTable{table-layout:auto}
   #srcTable td,#srcTable th{font-size:11.5px;padding:3px 6px;white-space:normal}
   #srcTable th{position:static}
@@ -332,6 +341,7 @@
     #tradeTable{min-width:820px}
     #groupTable{min-width:900px}
     #mapTable{min-width:700px}
+    #sourceManageTable{min-width:760px}
     #corrTable,#worstTable{min-width:640px}
     #accountTable{min-width:720px}
     #srcTable{min-width:0}
@@ -610,7 +620,26 @@
       </section>
 
       <section class="card tabpane" data-pane="map" hidden>
-        <h3>データ管理：EA名の対応表 <span id="mapCount" class="tag"></span></h3>
+        <h3>データ管理</h3>
+        <div class="hint">複数口座の読み込み状況と、EA名の判定ルールを管理します。表示名の変更はこのブラウザに保存され、同じファイルを次回読み込む際にも使われます。</div>
+
+        <section class="data-section" style="margin-top:14px;padding-top:0;border-top:0">
+          <h4>口座データ</h4>
+          <div class="hint data-summary" id="sourceManageSummary"></div>
+          <div class="scrollnote">表は横にスクロールできます</div>
+          <div class="tbl">
+            <table id="sourceManageTable">
+              <thead><tr>
+                <th>表示名</th><th>元ファイル</th><th class="num">決済</th><th class="num">未決済</th>
+                <th>対象期間</th><th class="num">マジック</th><th class="num">EA名</th>
+              </tr></thead><tbody></tbody>
+            </table>
+          </div>
+          <div class="hint" id="sourceManageStatus"></div>
+        </section>
+
+        <section class="data-section">
+        <h4>EA名の対応表 <span id="mapCount" class="tag"></span></h4>
         <div class="hint">
           マジックごとにEA名を手で指定できます。空欄にすると自動判定に戻ります。
           マジック <code>0</code> は「マジックが取れなかった取引」のまとめ行なので、
@@ -620,11 +649,13 @@
         </div>
         <div class="controls">
           <label class="chk"><input type="checkbox" id="autoMerge" checked> EA名の表記ゆれをマジック単位で統合</label>
+          <label class="chk"><input type="checkbox" id="mapUnresolvedOnly"> 要確認だけ表示</label>
           <button id="mapExport">JSONで書き出し</button>
           <label>JSONを読み込み <input type="file" id="mapImport" accept=".json,.txt"></label>
           <button id="mapClear">手動指定を全消去</button>
           <span class="hint" id="mapStatus"></span>
         </div>
+        <div class="hint data-summary" id="mapSummary"></div>
         <div class="controls">
           <label>マジック抽出パターン</label>
           <input type="text" id="magicPattern" size="24" placeholder="空欄=自動判定">
@@ -634,11 +665,12 @@
         <div class="tbl">
           <table id="mapTable">
             <thead><tr>
-              <th>マジック</th><th>自動判定</th><th>EA名（手動指定）</th>
+              <th>マジック</th><th>自動判定</th><th>EA名（手動指定）</th><th>状態</th>
               <th class="num">取引数</th><th class="num">純損益</th><th>例（生コメント）</th>
             </tr></thead><tbody></tbody>
           </table>
         </div>
+        </section>
       </section>
 
       <section class="card tabpane" data-pane="diag" hidden>
@@ -709,7 +741,7 @@ var RE_BAD   = /�/g;
 var UNKNOWN_EA = '(不明)';   /* 「(不明)」 */
 
 var state = { trades: [], sources: [], diag: null, chart: null, ddChart: null,
-              pattern: '', overrides: {}, eaStatuses: {},
+              pattern: '', overrides: {}, eaStatuses: {}, sourceAliases: {},
               sel: {}, known: {}, listQuery: {}, listOpen: {},
               cash: [],          /* 入出金。取引とは別に持つ */
               chartMode: 'pl',   /* pl=累積損益 / grp=EA名別 */
@@ -725,6 +757,7 @@ var state = { trades: [], sources: [], diag: null, chart: null, ddChart: null,
    保存できない場合はJSON書き出しを案内する。 */
 var MAP_KEY = 'mt_trade_analyzer_ea_map_v1';
 var EA_STATUS_KEY = 'mt_trade_analyzer_ea_status_v1';
+var SOURCE_ALIAS_KEY = 'mt_trade_analyzer_source_alias_v1';
 var EA_STATUS_OPTIONS = [
   { value: '', label: '未設定' },
   { value: 'continue', label: '継続' },
@@ -788,6 +821,26 @@ function saveOverrides() {
     setMapStatus('保存しました（' + n + ' 件）');
   } catch (e) {
     setMapStatus('このブラウザでは自動保存できませんでした。JSONで書き出してください。');
+  }
+}
+
+function loadSourceAliases() {
+  try {
+    var raw = localStorage.getItem(SOURCE_ALIAS_KEY);
+    var obj = raw ? JSON.parse(raw) : {};
+    return (obj && typeof obj === 'object' && !Array.isArray(obj)) ? obj : {};
+  } catch (e) {
+    return {};
+  }
+}
+
+function saveSourceAliases(message) {
+  var el = document.getElementById('sourceManageStatus');
+  try {
+    localStorage.setItem(SOURCE_ALIAS_KEY, JSON.stringify(state.sourceAliases));
+    if (el) el.textContent = message || '表示名を保存しました。';
+  } catch (e) {
+    if (el) el.textContent = 'このブラウザでは表示名を保存できませんでした。読み込み中は変更を維持します。';
   }
 }
 
@@ -925,7 +978,8 @@ async function loadFiles(files) {
     res.diag.fileName = file.name;
     res.diag.encoding = r.encoding;
 
-    var label = sourceLabel(file.name);
+    var autoLabel = sourceLabel(file.name);
+    var label = state.sourceAliases[file.name] || autoLabel;
     for (var k = 0; k < res.trades.length; k++) {
       res.trades[k].source = label;
       /* 口座が違えばチケット番号は衝突しうるのでソース名を混ぜる */
@@ -936,7 +990,7 @@ async function loadFiles(files) {
     for (var j = 0; j < state.sources.length; j++) {
       if (state.sources[j].fileName === file.name) { existing = j; break; }
     }
-    var entry = { fileName: file.name, label: label,
+    var entry = { fileName: file.name, label: label, autoLabel: autoLabel,
                   encoding: r.encoding, diag: res.diag, trades: res.trades,
                   cash: res.cash || [] };
     if (existing >= 0) state.sources[existing] = entry;
@@ -982,6 +1036,7 @@ function rebuildFromSources() {
 
   renderHeadMeta();
   renderSources();
+  renderDataManagement();
   renderLists();
   renderCrumbs();
   applyPeriod();   /* ファイルを足すとデータ範囲が変わるので引き直す */
@@ -1045,6 +1100,67 @@ function renderSources() {
     + '<th class="num">未決済</th><th></th></tr></thead>'
     + '<tbody>' + rows + '</tbody></table>';
 }
+
+/* データ管理画面では、ファイル単位を「口座データ」としてまとめて見せる。
+   表示名は source に反映するため、各画面の絞り込み・取引一覧でも同じ名前になる。 */
+function renderDataManagement() {
+  var body = document.querySelector('#sourceManageTable tbody');
+  if (!body) return;
+  var closedTotal = 0, openTotal = 0;
+  var rows = state.sources.map(function (s, i) {
+    var closed = 0, dates = [], magics = {}, eas = {};
+    s.trades.forEach(function (t) {
+      if (t.closed) closed++;
+      var d = ymd(t);
+      if (d) dates.push(d);
+      magics[t.magic || '0'] = true;
+      if (t.ea && t.ea !== UNKNOWN_EA) eas[t.ea] = true;
+    });
+    closedTotal += closed;
+    openTotal += s.trades.length - closed;
+    dates.sort();
+    var range = dates.length ? dates[0] + ' 〜 ' + dates[dates.length - 1] : '日付なし';
+    return '<tr><td><input type="text" data-source-name="' + i + '" value="' + esc(s.label)
+      + '" placeholder="口座表示名" aria-label="' + esc(s.fileName) + ' の表示名"></td>'
+      + '<td title="' + esc(s.fileName + ' / ' + s.encoding) + '">' + esc(s.fileName) + '</td>'
+      + '<td class="num">' + closed + '</td><td class="num">' + (s.trades.length - closed) + '</td>'
+      + '<td title="' + esc(range) + '">' + esc(range) + '</td>'
+      + '<td class="num">' + Object.keys(magics).length + '</td>'
+      + '<td class="num">' + Object.keys(eas).length + '</td></tr>';
+  });
+  body.innerHTML = rows.join('') || '<tr><td colspan="7">読み込み済みの口座データはありません</td></tr>';
+  var summary = document.getElementById('sourceManageSummary');
+  if (summary) summary.textContent = state.sources.length
+    ? state.sources.length + ' 口座データ、決済 ' + closedTotal + ' 件、未決済 ' + openTotal + ' 件を読み込み中です。'
+    : '右上の「データ追加」から、口座のHTMLレポートまたはTSVを読み込んでください。';
+}
+
+document.querySelector('#sourceManageTable tbody').addEventListener('change', function (e) {
+  var el = e.target;
+  if (!el || !el.dataset || el.dataset.sourceName === undefined) return;
+  var index = Number(el.dataset.sourceName);
+  var source = state.sources[index];
+  if (!source) return;
+  var next = el.value.trim();
+  if (!next) { renderDataManagement(); return; }
+  if (next === source.label) return;
+  if (state.sources.some(function (s, i) { return i !== index && s.label === next; })) {
+    alert('同じ表示名の口座データが既にあります。別の名前を指定してください。');
+    renderDataManagement();
+    return;
+  }
+  var previous = source.label;
+  source.label = next;
+  source.trades.forEach(function (t) { t.source = next; });
+  if (next === source.autoLabel) delete state.sourceAliases[source.fileName];
+  else state.sourceAliases[source.fileName] = next;
+  if (state.sel.source && state.sel.source.has(previous)) {
+    state.sel.source.delete(previous);
+    state.sel.source.add(next);
+  }
+  saveSourceAliases('表示名を「' + next + '」に変更しました。');
+  rebuildFromSources();
+});
 
 on('clearAll', 'click', function () {
   if (!state.sources.length) return;
@@ -3450,7 +3566,7 @@ function render() {
 }
 
 /* -------------------------------------------------- EA名の対応表（編集） */
-function renderMapTable() {
+function mapGroups() {
   var groups = {};
   for (var i = 0; i < state.trades.length; i++) {
     var t = state.trades[i];
@@ -3462,10 +3578,30 @@ function renderMapTable() {
     g.auto = (t.eaAuto !== undefined) ? t.eaAuto : t.ea;
     if (t.raw) g.samples[t.raw] = true;
   }
-  var list = Object.keys(groups).map(function (k) { return groups[k]; })
-    .sort(function (a, b) { return b.n - a.n; });
+  return Object.keys(groups).map(function (k) {
+    var g = groups[k];
+    g.manual = !!state.overrides[g.magic];
+    g.unresolved = !g.manual && (g.magic === '0' || g.auto === UNKNOWN_EA);
+    if (g.manual) { g.stateLabel = '手動設定'; g.stateClass = 'manual'; }
+    else if (g.unresolved) { g.stateLabel = '要確認'; g.stateClass = 'needs-review'; }
+    else { g.stateLabel = '自動判定'; g.stateClass = 'auto'; }
+    return g;
+  }).sort(function (a, b) { return b.n - a.n; });
+}
 
-  document.getElementById('mapCount').textContent = list.length + ' マジック';
+function renderMapTable() {
+  var all = mapGroups();
+  var unresolved = all.filter(function (g) { return g.unresolved; }).length;
+  var manual = all.filter(function (g) { return g.manual; }).length;
+  var automatic = all.length - unresolved - manual;
+  var onlyUnresolved = document.getElementById('mapUnresolvedOnly').checked;
+  var list = onlyUnresolved ? all.filter(function (g) { return g.unresolved; }) : all;
+
+  var summary = document.getElementById('mapSummary');
+  if (summary) summary.textContent = '手動設定 ' + manual + ' 件 ／ 自動判定 ' + automatic
+    + ' 件 ／ 要確認 ' + unresolved + ' 件。要確認にはEA名またはマジック番号を取得できなかったものが含まれます。';
+
+  document.getElementById('mapCount').textContent = all.length + ' マジック';
   document.querySelector('#mapTable tbody').innerHTML = list.map(function (g) {
     var ex = Object.keys(g.samples).slice(0, 2).join('  /  ');
     var cur = state.overrides[g.magic] || '';
@@ -3474,11 +3610,12 @@ function renderMapTable() {
       + '<td>' + esc(g.auto) + '</td>'
       + '<td><input type="text" data-magic="' + esc(g.magic) + '" value="' + esc(cur)
         + '" placeholder="自動判定のまま"></td>'
+      + '<td><span class="mapping-state ' + g.stateClass + '">' + g.stateLabel + '</span></td>'
       + '<td class="num">' + g.n + '</td>'
       + '<td class="num ' + cls(g.net) + '">' + fx(g.net) + '</td>'
       + '<td>' + esc(ex) + '</td>'
       + '</tr>';
-  }).join('') || '<tr><td colspan="6">データなし</td></tr>';
+  }).join('') || '<tr><td colspan="7">' + (onlyUnresolved ? '要確認のマジックはありません' : 'データなし') + '</td></tr>';
 }
 
 /* 手動指定を変えたあとの再計算。パーサは通さず判定だけやり直す */
@@ -3491,6 +3628,7 @@ function refreshIdentity() {
   renderLists();
   renderNotices();
   renderDiag();
+  renderDataManagement();
   renderMapTable();
   render();
 }
@@ -3505,6 +3643,8 @@ document.querySelector('#mapTable tbody').addEventListener('change', function (e
   saveOverrides();
   refreshIdentity();
 });
+
+on('mapUnresolvedOnly', 'change', function () { renderMapTable(); });
 
 on('mapExport', 'click', function () {
   var n = Object.keys(state.overrides).length;
@@ -3940,6 +4080,7 @@ loadSettings();
 applyPeriod();
 state.overrides = loadOverrides();
 state.eaStatuses = loadEaStatuses();
+state.sourceAliases = loadSourceAliases();
 (function () {
   /* ブラウザや開き方によっては localStorage が使えない（SecurityError）。
      使えるかどうかを起動時に判定して伝える。使えない場合はJSON書き出しが命綱。 */
@@ -3959,6 +4100,7 @@ state.eaStatuses = loadEaStatuses();
                    : '自動保存が使えます（編集すると保存されます）');
   }
 })();
+renderDataManagement();
 renderMapTable();
 </script>
 </body>
