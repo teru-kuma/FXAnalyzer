@@ -239,8 +239,10 @@
   #tradeTable th:nth-child(6){width:13%}
   #tradeTable th:nth-child(7){width:9%}
   #tradeTable th:nth-child(8),#tradeTable th:nth-child(9){width:8%}
-  #groupTable th:nth-child(1){width:22%}
-  #groupTable th:nth-child(2),#groupTable th:nth-child(3){width:13%}
+  #groupTable th:nth-child(1){width:18%}
+  #groupTable th:nth-child(2){width:11%}
+  #groupTable th:nth-child(3),#groupTable th:nth-child(4){width:11%}
+  .status-select{width:100%;min-width:84px;padding:3px 5px;font-size:11.5px;font-weight:600}
   #mapTable th:nth-child(1){width:12%}
   #mapTable th:nth-child(2),#mapTable th:nth-child(3){width:20%}
   td.num,th.num{text-align:right}
@@ -318,7 +320,7 @@
        表の中だけが横に動き、ページ自体は横スクロールしない。 */
     .tbl{overflow-x:auto;-webkit-overflow-scrolling:touch}
     #tradeTable{min-width:820px}
-    #groupTable{min-width:760px}
+    #groupTable{min-width:900px}
     #mapTable{min-width:700px}
     #corrTable,#worstTable{min-width:640px}
     #accountTable{min-width:720px}
@@ -492,8 +494,9 @@
         <div class="tbl">
           <table id="groupTable">
             <thead><tr>
-              <th data-k="label">グループ</th><th data-k="magics">マジック</th>
-              <th data-k="symbols">シンボル</th><th class="num" data-k="n">取引数</th>
+              <th data-k="label">EA名</th><th data-k="status">運用判断</th>
+              <th data-k="magics">マジック</th><th data-k="symbols">シンボル</th>
+              <th class="num" data-k="n">取引数</th>
               <th class="num" data-k="net">純損益</th><th class="num" data-k="pips">合計pips</th>
               <th class="num" data-k="winRate">勝率</th><th class="num" data-k="pf">PF</th>
               <th class="num" data-k="maxDD" id="thMaxDD">最大DD</th>
@@ -676,7 +679,7 @@ var RE_BAD   = /�/g;
 var UNKNOWN_EA = '(不明)';   /* 「(不明)」 */
 
 var state = { trades: [], sources: [], diag: null, chart: null, ddChart: null,
-              pattern: '', overrides: {},
+              pattern: '', overrides: {}, eaStatuses: {},
               sel: {}, known: {}, listQuery: {}, listOpen: {},
               cash: [],          /* 入出金。取引とは別に持つ */
               chartMode: 'pl',   /* pl=累積損益 / grp=EA名別 */
@@ -691,6 +694,47 @@ var state = { trades: [], sources: [], diag: null, chart: null, ddChart: null,
    localStorage は file:// で使えない環境があるため必ず try/catch し、
    保存できない場合はJSON書き出しを案内する。 */
 var MAP_KEY = 'mt_trade_analyzer_ea_map_v1';
+var EA_STATUS_KEY = 'mt_trade_analyzer_ea_status_v1';
+var EA_STATUS_OPTIONS = [
+  { value: '', label: '未設定' },
+  { value: 'continue', label: '継続' },
+  { value: 'observe', label: '観察' },
+  { value: 'improve', label: '改善' },
+  { value: 'stop', label: '停止候補' },
+  { value: 'testing', label: '検証中' }
+];
+
+function loadEaStatuses() {
+  try {
+    var raw = localStorage.getItem(EA_STATUS_KEY);
+    var obj = raw ? JSON.parse(raw) : {};
+    return (obj && typeof obj === 'object' && !Array.isArray(obj)) ? obj : {};
+  } catch (e) {
+    return {};
+  }
+}
+
+function saveEaStatuses() {
+  try {
+    localStorage.setItem(EA_STATUS_KEY, JSON.stringify(state.eaStatuses));
+  } catch (e) { /* 保存不可でも画面上の変更は維持する */ }
+}
+
+function eaStatusLabel(ea) {
+  var value = state.eaStatuses[ea] || '';
+  var item = EA_STATUS_OPTIONS.filter(function (x) { return x.value === value; })[0];
+  return item ? item.label : '未設定';
+}
+
+function eaStatusSelect(ea) {
+  var current = state.eaStatuses[ea] || '';
+  return '<select class="status-select" data-ea-status="' + esc(ea) + '"'
+    + ' aria-label="' + esc(ea) + 'の運用判断">'
+    + EA_STATUS_OPTIONS.map(function (item) {
+      return '<option value="' + item.value + '"' + (item.value === current ? ' selected' : '') + '>'
+        + item.label + '</option>';
+    }).join('') + '</select>';
+}
 
 function setMapStatus(msg) {
   var el = document.getElementById('mapStatus');
@@ -2821,6 +2865,17 @@ document.querySelector('#groupTable tbody').addEventListener('click', function (
   drillInto(tr.dataset.gv);
 });
 
+/* 評価ボードの判断はEA名をキーにしてブラウザへ保存する。次回同じEA名を
+   読み込んだときにも引き継ぐが、取引履歴やファイル自体は保存しない。 */
+document.querySelector('#groupTable tbody').addEventListener('change', function (e) {
+  var el = e.target;
+  if (!el || !el.dataset || el.dataset.eaStatus === undefined) return;
+  var ea = el.dataset.eaStatus;
+  if (el.value) state.eaStatuses[ea] = el.value;
+  else delete state.eaStatuses[ea];
+  saveEaStatuses();
+});
+
 /* ---------------------------------------------------------------- 集計 */
 /* key は 'profit'（口座通貨）か 'pips'。
    pips は口座通貨に依存しないので、通貨の違う口座を混ぜたときはこちらを見る。
@@ -3129,9 +3184,9 @@ function render() {
   renderAccountSnapshot();
   renderCompare(trades, state.activeDim, unit);
 
-  /* 集計軸は絞り込みに使っている軸そのもの。
-     これ以上掘れない場合（3軸すべて固定）は全体を1行にまとめる */
-  var mode = state.activeDim;
+  /* EA分析画面は常にEA名で集計する。右パネルのマジック・シンボル等は
+     対象を絞るための条件として使い、評価ボードの行名はぶれさせない。 */
+  var mode = state.tab === 'group' ? 'ea' : state.activeDim;
   var groups = new Map();
   for (var i = 0; i < trades.length; i++) {
     var t = trades[i];
@@ -3155,6 +3210,7 @@ function render() {
   });
   rows = sortRows(rows, 'groupTable', function (g, k) {
     if (k === 'label') return g.label;
+    if (k === 'status') return eaStatusLabel(g.label);
     if (k === 'magics') return Array.from(g.magics).sort().join(',');
     if (k === 'symbols') return Array.from(g.symbols).filter(Boolean).sort().join(',');
     if (k === 'net') return g.money.net;
@@ -3167,7 +3223,7 @@ function render() {
     return g.label;
   });
   markSortHeader('groupTable');
-  document.getElementById('groupCount').textContent = rows.length + ' グループ';
+  document.getElementById('groupCount').textContent = rows.length + ' EA';
   state.csvGroups = rows;
   /* 純損益と合計pipsは常に両方出るが、勝率・PF・最大DD・平均・取引数は
      表示単位に従って計算される。どちらの基準か分からないと誤読するので明示する。 */
@@ -3175,16 +3231,13 @@ function render() {
   document.getElementById('thMaxDD').firstChild.nodeValue = isPips ? '最大DD(pips)' : '最大DD';
   document.getElementById('thAvg').firstChild.nodeValue = isPips ? '平均(pips)' : '平均';
 
-  var nextLabel = mode ? nextDimAfter(mode) : null;
   document.getElementById('groupNote').textContent =
-    (mode ? DIM_LABEL[mode] + ' で集計' : '全体を集計')
-    + (nextLabel ? '　／　行をクリックすると ' + DIM_LABEL[nextLabel] + ' 別に掘り下げます'
-                 : '　／　これ以上は掘り下げられません')
+    'EA名ごとの評価ボードです。運用判断はこのブラウザに保存されます。'
     + '　／　取引数・勝率・PF・最大DD・平均は表示単位「' + u + '」で計算'
     + (isPips ? '（pipsを算出できない取引は除外）' : '');
 
-  /* まだ掘れる軸が残っているときだけ行をクリック可能にする */
-  var canDrill = !!(mode && nextDimAfter(mode));
+  /* 評価ボードでは行クリックによる掘り下げをせず、EA単位の判断を保つ。 */
+  var canDrill = false;
   document.querySelector('#groupTable tbody').innerHTML = rows.map(function (g) {
     var syms = Array.from(g.symbols).filter(Boolean).join(', ');
     var mgs = Array.from(g.magics).sort(function (a, b) {
@@ -3197,6 +3250,7 @@ function render() {
         + '<span class="dot" style="background:'
           + (g.money.net >= 0 ? 'var(--pos)' : 'var(--neg)') + '"></span>'
         + (canDrill ? '<span class="dchev">›</span>' : '') + esc(g.label) + '</td>'
+      + '<td>' + eaStatusSelect(g.label) + '</td>'
       + '<td title="' + esc(mgs) + '">' + esc(mgs) + '</td>'
       + '<td title="' + esc(syms) + '">' + esc(syms || '-') + '</td>'
       + '<td class="num">' + g.s.n + '</td>'
@@ -3208,7 +3262,7 @@ function render() {
       + '<td class="num">' + fmt(g.s.maxDD) + '</td>'
       + '<td class="num ' + cls(g.s.avg) + '">' + fmt(g.s.avg) + '</td>'
       + '</tr>';
-  }).join('') || '<tr><td colspan="10">データなし</td></tr>';
+  }).join('') || '<tr><td colspan="11">データなし</td></tr>';
 
   /* 取引一覧（既定はイグジットの新しい順）。ページングで50件ずつ */
   var sig = filterSignature();
@@ -3758,6 +3812,7 @@ on('applyPattern', 'click', function () {
 loadSettings();
 applyPeriod();
 state.overrides = loadOverrides();
+state.eaStatuses = loadEaStatuses();
 (function () {
   /* ブラウザや開き方によっては localStorage が使えない（SecurityError）。
      使えるかどうかを起動時に判定して伝える。使えない場合はJSON書き出しが命綱。 */
