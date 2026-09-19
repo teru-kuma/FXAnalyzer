@@ -131,6 +131,16 @@
   .corr-mid{background:#fff6e0}
   .corr-neg{background:#eaf6ee;color:var(--pos)}
   .corr-na,.muted{color:#b3bac4}
+  .portfolio-insights{margin-top:20px;padding-top:16px;border-top:1px solid var(--line)}
+  .portfolio-summary{margin-bottom:12px}
+  .portfolio-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px}
+  .portfolio-panel{border:1px solid var(--line);border-radius:5px;padding:12px;background:#fbfcfe}
+  .portfolio-panel h4{margin:0 0 4px;font-size:13px}
+  .portfolio-panel .tbl{margin-top:8px;background:#fff}
+  .direction-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:10px}
+  .direction-card{border:1px solid var(--line);background:#fff;border-radius:4px;padding:10px}
+  .direction-card .label{font-size:11px;color:var(--sub)}
+  .direction-card .value{font:700 18px Consolas,"Cascadia Mono",monospace;margin-top:3px}
 
   /* グラフの切り替えは本文側なので、幅いっぱいに広げず左に寄せる */
   .chartseg{display:inline-flex;gap:5px;margin-bottom:10px}
@@ -336,6 +346,7 @@
     .head-row{gap:8px;min-height:56px}
     .head-left{display:none}
     .top-actions button{padding:6px 8px;font-size:12px}
+    .portfolio-grid{grid-template-columns:1fr}
   }
 
   /* タッチ操作の端末（スマホ・タブレット）ではドラッグ&ドロップができないので、
@@ -561,6 +572,25 @@
           <div class="scrollnote">表は横にスクロールできます</div>
           <div class="tbl"><table id="worstTable"></table></div>
         </div>
+        <section class="portfolio-insights" id="portfolioInsights" hidden>
+          <h4 class="cmp-h" style="margin-top:0">履歴上の取引集中</h4>
+          <div class="hint portfolio-summary" id="portfolioSummary"></div>
+          <div class="portfolio-grid">
+            <section class="portfolio-panel">
+              <h4>通貨ペア別の取引集中</h4>
+              <div class="hint">保有量ではなく、選択期間の確定取引の構成です。</div>
+              <div class="scrollnote">表は横にスクロールできます</div>
+              <div class="tbl"><table id="symbolConcentrationTable">
+                <thead><tr><th>通貨ペア</th><th class="num">取引数</th><th class="num">構成比</th><th class="num">損益</th></tr></thead><tbody></tbody>
+              </table></div>
+            </section>
+            <section class="portfolio-panel">
+              <h4>BUY / SELL の偏り</h4>
+              <div class="hint">選択期間の確定取引における方向別の構成です。</div>
+              <div class="direction-grid" id="directionBias"></div>
+            </section>
+          </div>
+        </section>
       </section>
 
       <section class="card tabpane" data-pane="cash" hidden>
@@ -2071,6 +2101,73 @@ function renderCompare(trades, dim, unit) {
   document.getElementById('worstTable').innerHTML = wh + '</tbody>';
 }
 
+/* ポートフォリオ画面向けの履歴集計。
+   ここで扱うのは取り込んだ確定取引だけで、現在の保有量・証拠金・未決済リスクは示さない。 */
+function renderPortfolioInsights(trades, unit) {
+  var panel = document.getElementById('portfolioInsights');
+  if (!panel) return;
+  panel.hidden = state.tab !== 'portfolio';
+  if (state.tab !== 'portfolio') return;
+
+  var isPips = unit === 'pips';
+  var fmt = isPips ? fpips : fx;
+  var closed = trades.filter(function (t) {
+    return t.closed && (isPips ? typeof t.pips === 'number' : isFinite(t.profit));
+  });
+  var bySymbol = {};
+  var direction = { buy: { n: 0, value: 0 }, sell: { n: 0, value: 0 } };
+
+  closed.forEach(function (t) {
+    var value = isPips ? t.pips : t.profit;
+    var symbol = t.symbol || '-';
+    if (!bySymbol[symbol]) bySymbol[symbol] = { label: symbol, n: 0, value: 0 };
+    bySymbol[symbol].n++;
+    bySymbol[symbol].value += value;
+
+    var type = String(t.type || '').toLowerCase();
+    var key = type.indexOf('buy') === 0 ? 'buy' : type.indexOf('sell') === 0 ? 'sell' : null;
+    if (key) {
+      direction[key].n++;
+      direction[key].value += value;
+    }
+  });
+
+  var rows = Object.keys(bySymbol).map(function (key) { return bySymbol[key]; })
+    .sort(function (a, b) { return b.n - a.n || b.value - a.value; });
+  var total = closed.length;
+  var top = rows[0];
+  document.getElementById('portfolioSummary').textContent = !total
+    ? '選択条件に一致する確定取引がありません。'
+    : '確定取引 ' + total + ' 件。最多は ' + top.label + '（' + top.n + ' 件・'
+      + (top.n / total * 100).toFixed(1) + '%）です。これは履歴上の取引集中であり、'
+      + '現在の保有量・証拠金リスクは表しません。';
+
+  var symbolHead = document.querySelector('#symbolConcentrationTable th:last-child');
+  if (symbolHead) symbolHead.textContent = isPips ? '合計pips' : '損益';
+  var symbolHtml = '<tbody>';
+  if (!rows.length) {
+    symbolHtml += '<tr><td colspan="4" class="rowh">該当する確定取引がありません</td></tr>';
+  }
+  rows.forEach(function (row) {
+    symbolHtml += '<tr><td class="rowh">' + esc(row.label) + '</td>'
+      + '<td class="num">' + row.n + '</td>'
+      + '<td class="num">' + (row.n / total * 100).toFixed(1) + '%</td>'
+      + '<td class="num ' + cls(row.value) + '">' + fmt(row.value) + '</td></tr>';
+  });
+  document.getElementById('symbolConcentrationTable').querySelector('tbody').outerHTML = symbolHtml;
+
+  var classified = direction.buy.n + direction.sell.n;
+  var directionHtml = ['buy', 'sell'].map(function (key) {
+    var item = direction[key];
+    var ratio = classified ? (item.n / classified * 100).toFixed(1) : '0.0';
+    var valueClass = cls(item.value);
+    return '<div class="direction-card"><div class="label">' + (key === 'buy' ? 'BUY' : 'SELL') + '</div>'
+      + '<div class="value">' + ratio + '%</div>'
+      + '<div class="hint">' + item.n + ' 件 / <span class="' + valueClass + '">' + fmt(item.value) + '</span></div></div>';
+  }).join('');
+  document.getElementById('directionBias').innerHTML = directionHtml;
+}
+
 /* 口座残高の推移を作る。
    残高 = それまでの入出金の合計 + それまでの確定損益の合計。
    履歴が口座開設時から揃っていれば実際の残高と一致する。
@@ -2459,6 +2556,8 @@ function showTab(name) {
   document.getElementById('viewSubtitle').textContent = meta.subtitle;
   var compareTitle = document.getElementById('compareTitle');
   if (compareTitle) compareTitle.textContent = name === 'portfolio' ? 'ポートフォリオの連動リスク' : 'EA比較';
+  var portfolioInsights = document.getElementById('portfolioInsights');
+  if (portfolioInsights) portfolioInsights.hidden = name !== 'portfolio';
   document.querySelector('.main').scrollTop = 0;
 }
 
@@ -3210,6 +3309,7 @@ function render() {
   renderCashTable();
   renderAccountSnapshot();
   renderCompare(trades, state.activeDim, unit);
+  renderPortfolioInsights(trades, unit);
 
   /* EA分析画面は常にEA名で集計する。右パネルのマジック・シンボル等は
      対象を絞るための条件として使い、評価ボードの行名はぶれさせない。 */
