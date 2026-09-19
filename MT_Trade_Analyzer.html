@@ -1178,6 +1178,10 @@ function parseReport(html) {
         lots:      findCol(texts, ['size','volume','lots']),
         closeTime: findCol(texts, ['close time']),
         profit:    findCol(texts, ['profit']),
+        commission: findCol(texts, ['commission']),
+        swap:      findCol(texts, ['swap']),
+        fee:       findCol(texts, ['fee']),
+        taxes:     findCol(texts, ['taxes','tax']),
         comment:   findCol(texts, ['comment','remark'])
       };
       /* MT4/MT5のレポートは "Price" 列が建値と決済値で2つある。
@@ -1212,6 +1216,14 @@ function parseReport(html) {
 
     var iProfit = col.profit + shift;
     var profit = parseNum(cells[iProfit] ? cells[iProfit].text : '');
+    /* HTMLレポートでは Profit と手数料等が別列。残高は実質損益で増減するため、
+       分析指標用の profit とは別に net を持つ。空欄のコスト列は0として扱う。 */
+    var costOf = function (key) {
+      var value = parseNum(pick(key));
+      return isFinite(value) ? value : 0;
+    };
+    var net = isFinite(profit) ? profit + costOf('commission') + costOf('swap')
+      + costOf('fee') + costOf('taxes') : NaN;
 
     /* 入出金は取引ではないので別枠に積む。
        損益に混ぜると入金額がそのまま利益として集計されてしまう。
@@ -1222,7 +1234,7 @@ function parseReport(html) {
        金額は末尾から最初に見つかる数値、日時は最初の日付らしいセルを使う。 */
     if (BALANCE_TYPES.has(type)) {
       diag.counts.balance++;
-      var amt = profit;
+      var amt = net;
       if (!isFinite(amt)) {
         for (var bi = cells.length - 1; bi >= 0; bi--) {
           var bv = parseNum(cells[bi].text);
@@ -1299,7 +1311,7 @@ function parseReport(html) {
 
     trades.push({
       key: ticket || String(r), ticket: ticket, type: type, symbol: symbol,
-      magic: magic, ea: ea, profit: profit, raw: raw, flags: cc.flags,
+      magic: magic, ea: ea, profit: profit, net: net, raw: raw, flags: cc.flags,
       closed: closed, time: time, openTime: openTime,
       lots: parseNum(pick('lots')),
       pips: closed ? calcPips(type, pick('openPrice'), pick('closePrice')) : null
@@ -1311,7 +1323,7 @@ function parseReport(html) {
         cells: cells.map(function (c, i) {
           return '[' + i + '] ' + c.text + (c.title ? ' (title=' + c.title + ')' : '');
         }),
-        resolved: { type: type, symbol: symbol, profit: profit, raw: raw,
+        resolved: { type: type, symbol: symbol, profit: profit, net: net, raw: raw,
                     magic: magic, ea: ea, closed: closed }
       });
     }
@@ -1348,7 +1360,12 @@ function parseDelimited(text) {
     lots:     findCol(head, ['lots','size','volume']),
     type:     findCol(head, ['type','cmd']),
     magic:    findCol(head, ['magic','magicnumber','magic number']),
-    profit:   findCol(head, ['profit','netprofit','pl']),
+    profit:   findCol(head, ['profit','pl']),
+    net:      findCol(head, ['net','net profit','netprofit']),
+    commission: findCol(head, ['commission']),
+    swap:     findCol(head, ['swap']),
+    fee:      findCol(head, ['fee']),
+    taxes:    findCol(head, ['taxes','tax']),
     comment:  findCol(head, ['comment','remark']),
     ea:       findCol(head, ['ea','ea name','expert','name'])
   };
@@ -1364,6 +1381,14 @@ function parseDelimited(text) {
   for (var i = 1; i < lines.length; i++) {
     var c = split(lines[i]);
     var profit = parseNum(idx.profit >= 0 ? c[idx.profit] : '');
+    var costValue = function (key) {
+      var value = parseNum(idx[key] >= 0 ? c[idx[key]] : '');
+      return isFinite(value) ? value : 0;
+    };
+    var netColumn = parseNum(idx.net >= 0 ? c[idx.net] : '');
+    var net = isFinite(netColumn) ? netColumn
+      : (isFinite(profit) ? profit + costValue('commission') + costValue('swap')
+        + costValue('fee') + costValue('taxes') : NaN);
 
     /* 入出金は取引と分ける。ここに除外が無かったため、
        InpIncludeBalance を有効にしたTSVでは入金額が
@@ -1371,11 +1396,11 @@ function parseDelimited(text) {
     var rowType = String(idx.type >= 0 ? c[idx.type] : '').toLowerCase();
     if (BALANCE_TYPES.has(rowType)) {
       diag.counts.balance++;
-      if (isFinite(profit)) {
+      if (isFinite(net)) {
         cash.push({
           time: (idx.time >= 0 ? c[idx.time] : '') || (idx.openTime >= 0 ? c[idx.openTime] : ''),
-          type: rowType, amount: profit,
-          kind: cashKindOf(rowType, profit),
+          type: rowType, amount: net,
+          kind: cashKindOf(rowType, net),
           note: (idx.comment >= 0 ? c[idx.comment] : '') || ''
         });
       }
@@ -1407,7 +1432,7 @@ function parseDelimited(text) {
       key: 'c' + i,
       ticket: idx.ticket >= 0 ? (c[idx.ticket] || '') : '',
       type: (idx.type >= 0 ? c[idx.type] : '') || '',
-      symbol: symbol, magic: magic, ea: ea, profit: profit, raw: raw, flags: cc.flags,
+      symbol: symbol, magic: magic, ea: ea, profit: profit, net: net, raw: raw, flags: cc.flags,
       closed: isClosed, time: normTime(closeStr || openStr),
       openTime: normTime(openStr),
       lots: parseNum(idx.lots >= 0 ? c[idx.lots] : ''),
@@ -1422,7 +1447,7 @@ function parseDelimited(text) {
         row: i, len: c.length, shift: 0, iProfit: idx.profit, iComment: idx.comment,
         cells: c.map(function (v, n) { return '[' + n + '] ' + v; }),
         resolved: { type: (idx.type >= 0 ? c[idx.type] : '') || '', symbol: symbol,
-                    profit: profit, raw: raw, magic: magic, ea: ea, closed: isClosed }
+                    profit: profit, net: net, raw: raw, magic: magic, ea: ea, closed: isClosed }
       });
     }
   }
@@ -1559,6 +1584,8 @@ function mergeTradesBy(list, keyFn) {
     var g = map.get(k);
     g.parts += (t.parts || 1);
     g.profit += t.profit;
+    g.net = (isFinite(g.net) ? g.net : g.profit - t.profit)
+      + (isFinite(t.net) ? t.net : t.profit);
     if (isFinite(t.lots)) g.lots += t.lots;
     if (typeof t.pips === 'number') {
       var wt = isFinite(t.lots) ? t.lots : 1;
@@ -2063,7 +2090,7 @@ function balanceSeries(source) {
     var d = ymd(t);
     if (!d || !t.closed) return;
     if (!allowed(t.source)) return;
-    ev.push({ ymd: d, v: t.profit });
+    ev.push({ ymd: d, v: isFinite(t.net) ? t.net : t.profit });
   });
   ev.sort(function (a, b) { return a.ymd.localeCompare(b.ymd); });
 
@@ -2139,7 +2166,7 @@ function renderAccountSnapshot() {
   }).join('') || '<tr><td colspan="5">選択中の口座はありません</td></tr>';
 
   document.getElementById('accountBalanceNote').textContent =
-    '推定残高 = 読み込み範囲の入出金 + 確定損益（口座ごとに分離）。'
+    '推定残高 = 読み込み範囲の入出金 + 確定取引の実質損益（手数料・スワップ等を含む、口座ごとに分離）。'
     + '口座開設時からの履歴と入出金が揃う場合は実残高と一致します。'
     + (to ? '表示基準日: ' + to + '。' : '表示基準日: 読み込み済みの最終日。');
 }
@@ -3736,12 +3763,12 @@ window.selfCheck = function () {
 function runSelfCheck() {
   var r = parseReport(SAMPLE_MT4).trades;
   var expect = [
-    { ticket: '101', magic: '20221121', ea: 'Assye Lisse',       profit: -5,     closed: true },
-    { ticket: '102', magic: '20221120', ea: 'Assye Lisse',       profit: 273,    closed: true },
-    { ticket: '103', magic: '105801',   ea: 'TWICE_Scalping_M5', profit: -227,   closed: true },
-    { ticket: '104', magic: '105801',   ea: 'TWICE_Scalping_M5', profit: 1240.5, closed: true },
-    { ticket: '105', magic: '0',        ea: UNKNOWN_EA,          profit: 25,     closed: true },
-    { ticket: '201', magic: '20221125', ea: 'Assye Lisse',       profit: 36,     closed: false }
+    { ticket: '101', magic: '20221121', ea: 'Assye Lisse',       profit: -5,     net: -6,     closed: true },
+    { ticket: '102', magic: '20221120', ea: 'Assye Lisse',       profit: 273,    net: 273,    closed: true },
+    { ticket: '103', magic: '105801',   ea: 'TWICE_Scalping_M5', profit: -227,   net: -229,   closed: true },
+    { ticket: '104', magic: '105801',   ea: 'TWICE_Scalping_M5', profit: 1240.5, net: 1238.5, closed: true },
+    { ticket: '105', magic: '0',        ea: UNKNOWN_EA,          profit: 25,     net: 25,     closed: true },
+    { ticket: '201', magic: '20221125', ea: 'Assye Lisse',       profit: 36,     net: 36,     closed: false }
   ];
   var out = [];
   expect.forEach(function (e) {
