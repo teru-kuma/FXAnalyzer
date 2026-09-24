@@ -131,6 +131,8 @@
   .corr-mid{background:#fff6e0}
   .corr-neg{background:#eaf6ee;color:var(--pos)}
   .corr-na,.muted{color:#b3bac4}
+  .compare-chart-container{position:relative;height:300px;margin-top:8px}
+  .compare-dd-container{position:relative;height:130px;margin-top:7px}
   .portfolio-insights{margin-top:20px;padding-top:16px;border-top:1px solid var(--line)}
   .portfolio-summary{margin-bottom:12px}
   .portfolio-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px}
@@ -372,6 +374,7 @@
     .head-left{display:none}
     .top-actions button{padding:6px 8px;font-size:12px}
     .portfolio-grid{grid-template-columns:1fr}
+    .compare-chart-container{height:250px}
   }
 
   /* タッチ操作の端末（スマホ・タブレット）ではドラッグ&ドロップができないので、
@@ -599,6 +602,16 @@
         </div>
         <div class="hint" id="cmpNote"></div>
         <div id="cmpBody" hidden>
+          <section id="compareTrendSection">
+          <h4 class="cmp-h">EA別の累積損益推移</h4>
+          <div class="hint">選んだEAごとの累積損益です。線の色は、下の相関表・ワースト日表と共通です。</div>
+          <div class="compare-chart-container"><canvas id="compareEquityChart"></canvas></div>
+          <div class="drawdown-chart">
+            <div class="chart-caption"><h4>合計ドローダウン推移</h4><span class="hint">比較対象を合計した場合のピークからの下落幅</span></div>
+            <div class="compare-dd-container"><canvas id="compareDrawdownChart"></canvas></div>
+          </div>
+          </section>
+
           <h4 class="cmp-h">相関（日ごとの損益の連動）</h4>
           <div class="hint">
             日ごとの損益がどれだけ一緒に動くかを −1〜1 で示します。
@@ -773,6 +786,7 @@ var RE_BAD   = /�/g;
 var UNKNOWN_EA = '(不明)';   /* 「(不明)」 */
 
 var state = { trades: [], sources: [], diag: null, chart: null, ddChart: null,
+              compareChart: null, compareDdChart: null,
               pattern: '', overrides: {}, eaStatuses: {}, sourceAliases: {}, eaStatusFilter: '',
               compareEa: new Set(),
               sel: {}, known: {}, listQuery: {}, listOpen: {},
@@ -2164,6 +2178,88 @@ function drawFallbackMulti(cv, series, dg) {
   });
 }
 
+/* 比較タブ専用の累積推移。ホームのグラフ状態と共有しないので、画面を行き来しても互いを破棄しない。 */
+function clearCompareCharts() {
+  if (state.compareChart) { state.compareChart.destroy(); state.compareChart = null; }
+  if (state.compareDdChart) { state.compareDdChart.destroy(); state.compareDdChart = null; }
+}
+
+function drawCompareTrends(dg, formatter) {
+  var cv = document.getElementById('compareEquityChart');
+  var ddCv = document.getElementById('compareDrawdownChart');
+  var series = dg.groups.map(function (group) {
+    var run = 0;
+    return dg.days.map(function (day) {
+      run += group.byDay[day] || 0;
+      return Math.round(run * 100) / 100;
+    });
+  });
+  /* DD は選択EAを合算して求める。開始点0を含め、最初の損失もDDとして扱う。 */
+  var total = dg.days.map(function (day) {
+    return dg.groups.reduce(function (sum, group) { return sum + (group.byDay[day] || 0); }, 0);
+  });
+  var cumulative = 0;
+  total = total.map(function (value) { cumulative += value; return cumulative; });
+  var dd = drawdownSeries([0].concat(total)).slice(1);
+
+  clearCompareCharts();
+  if (typeof Chart === 'undefined') {
+    drawFallbackMulti(cv, series, dg);
+    drawFallbackDrawdown(ddCv, dd, dg.days);
+    return;
+  }
+
+  var fmt = tickFormatterFor(dg.days);
+  var labels = dg.days.map(fmt);
+  state.compareChart = new Chart(cv.getContext('2d'), {
+    type: 'line',
+    data: {
+      labels: labels,
+      datasets: dg.groups.map(function (group, i) {
+        return { label: group.label, data: series[i], borderColor: groupColor(i),
+                 backgroundColor: groupColor(i), fill: false, tension: 0.15,
+                 pointRadius: 0, borderWidth: 1.8 };
+      })
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false, animation: false,
+      interaction: { mode: 'index', intersect: false },
+      scales: {
+        x: { grid: { display: false }, ticks: { autoSkip: true, maxTicksLimit: 8,
+             maxRotation: 0, minRotation: 0, font: { size: 10 }, color: '#65727f' } },
+        y: { ticks: { font: { size: 10 }, color: '#65727f' } }
+      },
+      plugins: {
+        legend: { display: true, position: 'top', align: 'start',
+                  labels: { boxWidth: 12, boxHeight: 2, font: { size: 11 } } },
+        tooltip: { callbacks: { title: function (items) {
+          var i = items.length ? items[0].dataIndex : 0;
+          return dg.days[i] || '';
+        }, label: function (item) { return item.dataset.label + ': ' + formatter(item.parsed.y); } } }
+      }
+    }
+  });
+  state.compareDdChart = new Chart(ddCv.getContext('2d'), {
+    type: 'line',
+    data: { labels: labels, datasets: [{ data: dd, borderColor: DD_LINE,
+      backgroundColor: DD_FILL, fill: { target: 'origin' }, tension: 0.1,
+      pointRadius: 0, borderWidth: 1.5 }] },
+    options: {
+      responsive: true, maintainAspectRatio: false, animation: false,
+      interaction: { mode: 'index', intersect: false },
+      scales: {
+        x: { grid: { display: false }, ticks: { autoSkip: true, maxTicksLimit: 8,
+             maxRotation: 0, minRotation: 0, font: { size: 10 }, color: '#65727f' } },
+        y: { max: 0, ticks: { font: { size: 10 }, color: '#65727f' } }
+      },
+      plugins: { legend: { display: false }, tooltip: { callbacks: {
+        title: function (items) { var i = items.length ? items[0].dataIndex : 0; return dg.days[i] || ''; },
+        label: function (item) { return 'DD ' + formatter(item.parsed.y); }
+      } } }
+    }
+  });
+}
+
 /* ピアソンの相関係数。どちらかが一定値なら出せないので null */
 function pearson(a, b) {
   var n = a.length, i;
@@ -2184,6 +2280,8 @@ function pearson(a, b) {
 function renderCompare(trades, dim, unit) {
   var note = document.getElementById('cmpNote');
   var body = document.getElementById('cmpBody');
+  var trendSection = document.getElementById('compareTrendSection');
+  if (trendSection) trendSection.hidden = state.tab !== 'compare';
   var isPips = unit === 'pips';
   var f = isPips ? fpips : fx;
   var dimName = dim ? DIM_LABEL[dim] : '';
@@ -2194,6 +2292,7 @@ function renderCompare(trades, dim, unit) {
 
   if (!dim || n < 2) {
     body.hidden = true;
+    if (state.tab === 'compare') clearCompareCharts();
     note.textContent = usingBasket
       ? 'EA分析で選んだ比較対象のうち、現在の期間・口座条件に取引があるEAが2件未満です。'
       : '比較するには、' + (dimName ? '「' + dimName + '」のリスト' : '絞り込みのリスト')
@@ -2202,12 +2301,14 @@ function renderCompare(trades, dim, unit) {
   }
   if (n > CMP_MAX) {
     body.hidden = true;
+    if (state.tab === 'compare') clearCompareCharts();
     note.textContent = dimName + ' が ' + n + ' 件選ばれています。比較できるのは '
       + CMP_MAX + ' 件までです。「' + dimName + '」のリストで見比べたいものだけにチェックを絞ってください'
       + '（「全選択 / 解除」の「解除」で一度すべて外すと選びやすくなります）。';
     return;
   }
   body.hidden = false;
+  if (state.tab === 'compare') drawCompareTrends(dg, f);
   note.textContent = (usingBasket ? 'EA分析から選んだEA ' : dimName + ' ') + n + ' 件を比較しています'
     + '（取引のあった ' + dg.days.length + ' 日・' + (isPips ? 'pips' : '金額')
     + '・確定した取引のみ）。色はグラフの「' + dimName + '別」と揃えています。';
@@ -2755,10 +2856,12 @@ function showTab(name) {
   if (compareTitle) compareTitle.textContent = name === 'portfolio' ? 'ポートフォリオの連動リスク' : 'EA比較';
   var portfolioInsights = document.getElementById('portfolioInsights');
   if (portfolioInsights) portfolioInsights.hidden = name !== 'portfolio';
+  var compareTrend = document.getElementById('compareTrendSection');
+  if (compareTrend) compareTrend.hidden = name !== 'compare';
   document.querySelector('.main').scrollTop = 0;
   /* EA分析は常にEA名を行単位にする。前画面でマジック等を集計軸にしていても、
      タブを開いた時点で評価ボードと比較チェックをEA単位に描き直す。 */
-  if (name === 'group' && state.sources.length) render();
+  if ((name === 'group' || name === 'compare') && state.sources.length) render();
 }
 
 on('topNav', 'click', function (e) {
@@ -3229,7 +3332,6 @@ on('eaStatusFilter', 'click', function (e) {
 on('compareSelected', 'click', function () {
   if (state.compareEa.size < 2) return;
   showTab('compare');
-  render();
 });
 
 on('compareSelectionClear', 'click', function () {
