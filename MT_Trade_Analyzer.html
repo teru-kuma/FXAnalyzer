@@ -249,14 +249,22 @@
   #tradeTable th:nth-child(6){width:13%}
   #tradeTable th:nth-child(7){width:9%}
   #tradeTable th:nth-child(8),#tradeTable th:nth-child(9){width:8%}
-  #groupTable th:nth-child(1){width:18%}
-  #groupTable th:nth-child(2){width:11%}
-  #groupTable th:nth-child(3),#groupTable th:nth-child(4){width:11%}
+  #groupTable th:nth-child(1){width:17%}
+  #groupTable th:nth-child(2){width:10%}
+  #groupTable th:nth-child(3){width:6%;text-align:center}
+  #groupTable th:nth-child(4),#groupTable th:nth-child(5){width:10%}
   .status-select{width:100%;min-width:84px;padding:3px 5px;font-size:11.5px;font-weight:600}
   .status-filter{display:flex;align-items:center;gap:5px;flex-wrap:wrap;margin:10px 0 8px}
   .status-filter .filter-label{margin-right:2px}
   .status-filter button{padding:3px 8px;font-size:11.5px;border-radius:999px}
   .status-filter button.on{background:var(--accent);border-color:var(--accent);color:#fff}
+  .compare-picker{display:flex;align-items:center;gap:7px;flex-wrap:wrap;margin:8px 0 10px;padding:8px 10px;background:#f6f8fc;border:1px solid var(--line);border-radius:5px}
+  .compare-picker button{padding:4px 9px;font-size:11.5px}
+  .compare-picker .primary-action{background:var(--accent);border-color:var(--accent);color:#fff}
+  .compare-picker .primary-action:disabled{background:#e7ebf1;border-color:#d7dee8;color:#98a3b2;cursor:not-allowed}
+  .compare-picker .compare-summary{font-size:11px;color:var(--sub);min-width:150px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .compare-ea-cell{text-align:center}
+  .compare-ea-check{width:15px;height:15px;vertical-align:middle;cursor:pointer}
   #mapTable th:nth-child(1){width:12%}
   #mapTable th:nth-child(2),#mapTable th:nth-child(3){width:20%}
   #mapTable th:nth-child(4){width:12%}
@@ -529,11 +537,17 @@
           <button data-status="continue" aria-pressed="false">継続</button>
           <button data-status="unset" aria-pressed="false">未設定</button>
         </div>
+        <div class="compare-picker" id="comparePicker">
+          <span class="filter-label">比較対象</span><span id="compareEaCount" class="tag">0 / 8 EA</span>
+          <button id="compareSelected" class="primary-action" disabled>選択したEAを比較</button>
+          <button id="compareSelectionClear" disabled>選択を解除</button>
+          <span class="compare-summary" id="compareEaSummary">EA分析の「比較」にチェックすると、通常の集計を変えずに比較できます。</span>
+        </div>
         <div class="scrollnote">表は横にスクロールできます</div>
         <div class="tbl">
           <table id="groupTable">
             <thead><tr>
-              <th data-k="label">EA名</th><th data-k="status" title="初回クリックでは 停止候補 → 改善 → 観察 → 検証中 → 継続 → 未設定 の順に並びます">運用判断</th>
+              <th data-k="label">EA名</th><th data-k="status" title="初回クリックでは 停止候補 → 改善 → 観察 → 検証中 → 継続 → 未設定 の順に並びます">運用判断</th><th class="compare-ea-cell">比較</th>
               <th data-k="magics">マジック</th><th data-k="symbols">シンボル</th>
               <th class="num" data-k="n">取引数</th>
               <th class="num" data-k="net">純損益</th><th class="num" data-k="pips">合計pips</th>
@@ -760,6 +774,7 @@ var UNKNOWN_EA = '(不明)';   /* 「(不明)」 */
 
 var state = { trades: [], sources: [], diag: null, chart: null, ddChart: null,
               pattern: '', overrides: {}, eaStatuses: {}, sourceAliases: {}, eaStatusFilter: '',
+              compareEa: new Set(),
               sel: {}, known: {}, listQuery: {}, listOpen: {},
               cash: [],          /* 入出金。取引とは別に持つ */
               chartMode: 'pl',   /* pl=累積損益 / grp=EA名別 */
@@ -839,6 +854,17 @@ function matchesEaStatusFilter(ea) {
   if (!filter) return true;
   var current = state.eaStatuses[ea] || '';
   return filter === 'unset' ? !current : current === filter;
+}
+
+function renderComparePicker() {
+  var count = state.compareEa.size;
+  var names = Array.from(state.compareEa).map(function (raw) { return dimLabelOf('ea', raw); });
+  document.getElementById('compareEaCount').textContent = count + ' / ' + CMP_MAX + ' EA';
+  document.getElementById('compareSelected').disabled = count < 2;
+  document.getElementById('compareSelectionClear').disabled = count === 0;
+  document.getElementById('compareEaSummary').textContent = !count
+    ? 'EA分析の「比較」にチェックすると、通常の集計を変えずに比較できます。'
+    : names.join('、') + (count < 2 ? '　（比較には2 EA以上を選択）' : '　（比較の準備完了）');
 }
 
 function setMapStatus(msg) {
@@ -1070,6 +1096,7 @@ function rebuildFromSources() {
   /* ファイルを入れ替えたら掘り下げの文脈は捨てる */
   state.drill = [];
   state.activeDim = DIMS[0];
+  state.compareEa.clear();
 
   var hasData = state.sources.length > 0;
   document.getElementById('emptyState').hidden = hasData;
@@ -2160,13 +2187,16 @@ function renderCompare(trades, dim, unit) {
   var isPips = unit === 'pips';
   var f = isPips ? fpips : fx;
   var dimName = dim ? DIM_LABEL[dim] : '';
+  var usingBasket = state.tab === 'compare' && state.compareEa.size > 0;
   var dg = dailyByGroup(trades, dim, unit);
   var n = dg.groups.length;
-  document.getElementById('cmpCount').textContent = n + ' 件';
+  document.getElementById('cmpCount').textContent = n + (usingBasket ? ' / ' + state.compareEa.size : '') + ' EA';
 
   if (!dim || n < 2) {
     body.hidden = true;
-    note.textContent = '比較するには、' + (dimName ? '「' + dimName + '」のリスト' : '絞り込みのリスト')
+    note.textContent = usingBasket
+      ? 'EA分析で選んだ比較対象のうち、現在の期間・口座条件に取引があるEAが2件未満です。'
+      : '比較するには、' + (dimName ? '「' + dimName + '」のリスト' : '絞り込みのリスト')
       + 'で2つ以上にチェックを入れてください。チェックしたものだけがここで比較されます。';
     return;
   }
@@ -2178,7 +2208,7 @@ function renderCompare(trades, dim, unit) {
     return;
   }
   body.hidden = false;
-  note.textContent = dimName + ' ' + n + ' 件を比較しています'
+  note.textContent = (usingBasket ? 'EA分析から選んだEA ' : dimName + ' ') + n + ' 件を比較しています'
     + '（取引のあった ' + dg.days.length + ' 日・' + (isPips ? 'pips' : '金額')
     + '・確定した取引のみ）。色はグラフの「' + dimName + '別」と揃えています。';
 
@@ -2726,6 +2756,9 @@ function showTab(name) {
   var portfolioInsights = document.getElementById('portfolioInsights');
   if (portfolioInsights) portfolioInsights.hidden = name !== 'portfolio';
   document.querySelector('.main').scrollTop = 0;
+  /* EA分析は常にEA名を行単位にする。前画面でマジック等を集計軸にしていても、
+     タブを開いた時点で評価ボードと比較チェックをEA単位に描き直す。 */
+  if (name === 'group' && state.sources.length) render();
 }
 
 on('topNav', 'click', function (e) {
@@ -3162,7 +3195,23 @@ document.querySelector('#groupTable tbody').addEventListener('click', function (
    読み込んだときにも引き継ぐが、取引履歴やファイル自体は保存しない。 */
 document.querySelector('#groupTable tbody').addEventListener('change', function (e) {
   var el = e.target;
-  if (!el || !el.dataset || el.dataset.eaStatus === undefined) return;
+  if (!el || !el.dataset) return;
+  if (el.dataset.compareEa !== undefined) {
+    var raw = el.dataset.compareEa;
+    if (el.checked) {
+      if (state.compareEa.size >= CMP_MAX) {
+        el.checked = false;
+        alert('比較できるEAは ' + CMP_MAX + ' 件までです。');
+        return;
+      }
+      state.compareEa.add(raw);
+    } else {
+      state.compareEa.delete(raw);
+    }
+    renderComparePicker();
+    return;
+  }
+  if (el.dataset.eaStatus === undefined) return;
   var ea = el.dataset.eaStatus;
   if (el.value) state.eaStatuses[ea] = el.value;
   else delete state.eaStatuses[ea];
@@ -3174,6 +3223,17 @@ on('eaStatusFilter', 'click', function (e) {
   var button = e.target.closest ? e.target.closest('button[data-status]') : null;
   if (!button) return;
   state.eaStatusFilter = button.dataset.status;
+  render();
+});
+
+on('compareSelected', 'click', function () {
+  if (state.compareEa.size < 2) return;
+  showTab('compare');
+  render();
+});
+
+on('compareSelectionClear', 'click', function () {
+  state.compareEa.clear();
   render();
 });
 
@@ -3480,7 +3540,17 @@ function render() {
 
   renderCashTable();
   renderAccountSnapshot();
-  renderCompare(trades, state.activeDim, unit);
+  var compareTrades = trades;
+  var compareDim = state.activeDim;
+  /* EA分析から選んだ比較対象があるときだけ、その選択を比較タブに適用する。
+     EA名の通常選択はバスケットで置き換え、マジック／シンボル等の条件はそのまま残す。 */
+  if (state.tab === 'compare' && state.compareEa.size) {
+    compareTrades = (state.activeDim === 'ea' ? contextTrades() : trades).filter(function (t) {
+      return state.compareEa.has(dimValueOf(t, 'ea'));
+    });
+    compareDim = 'ea';
+  }
+  renderCompare(compareTrades, compareDim, unit);
   renderPortfolioInsights(trades, unit);
 
   /* EA分析画面は常にEA名で集計する。右パネルのマジック・シンボル等は
@@ -3525,6 +3595,7 @@ function render() {
   });
   markSortHeader('groupTable');
   renderEaStatusFilter();
+  renderComparePicker();
   document.getElementById('groupCount').textContent = state.eaStatusFilter
     ? rows.length + ' / ' + totalEaRows + ' EA' : rows.length + ' EA';
   state.csvGroups = rows;
@@ -3559,6 +3630,9 @@ function render() {
           + (g.money.net >= 0 ? 'var(--pos)' : 'var(--neg)') + '"></span>'
         + (canDrill ? '<span class="dchev">›</span>' : '') + esc(g.label) + '</td>'
       + '<td>' + eaStatusSelect(g.label) + '</td>'
+      + '<td class="compare-ea-cell"><input class="compare-ea-check" type="checkbox" data-compare-ea="'
+        + esc(g.raw) + '"' + (state.compareEa.has(g.raw) ? ' checked' : '')
+        + ' aria-label="' + esc(g.label) + 'を比較対象に追加"></td>'
       + '<td title="' + esc(mgs) + '">' + esc(mgs) + '</td>'
       + '<td title="' + esc(syms) + '">' + esc(syms || '-') + '</td>'
       + '<td class="num">' + g.s.n + '</td>'
