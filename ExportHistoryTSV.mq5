@@ -48,7 +48,7 @@
 //    net           = profit + commission + swap + fee
 //+------------------------------------------------------------------+
 #property copyright "MT4/MT5 Trade Analyzer"
-#property version   "1.00"
+#property version   "1.10"
 #property script_show_inputs
 
 input string   InpFileName       = "";     // 出力ファイル名（空欄=自動命名）
@@ -91,7 +91,7 @@ string NormalizeSubFolder(string v)
    return(v);
   }
 
-//--- IN側ディールの索引（position_id -> 建玉情報）
+//--- 建玉を開始・途転した側のディールの索引（position_id -> 建玉情報）
 //
 //  ★MT5の要注意点
 //    EAが指定したマジックナンバーとコメントは「エントリー側のディール」に乗る。
@@ -99,8 +99,12 @@ string NormalizeSubFolder(string v)
 //      - コメント: 空、またはSL/TP決済なら "sl" "tp" "so" など端末が入れる文字列
 //      - マジック: SL/TP決済だと 0（SL/TP注文はEAではなくサーバーが出すため）
 //    になる。したがってマジックもコメントもIN側から引く必要がある。
+//    途転(DEAL_ENTRY_INOUT)は決済と新規建玉を同時に行うため、次の決済では
+//    途転後の情報を参照できるよう、索引にも新規建玉として登録する。
 long     g_inPos[];
 datetime g_inTime[];
+long     g_inTimeMsc[];
+ulong    g_inTicket[];
 double   g_inPrice[];
 long     g_inType[];
 long     g_inMagic[];
@@ -153,18 +157,23 @@ int SymDigits(const string sym)
 //+------------------------------------------------------------------+
 //| IN側ディールを索引に登録                                          |
 //+------------------------------------------------------------------+
-void IndexInDeal(const long posId, const datetime t, const double price,
-                 const long type, const long magic, const string comment)
+void IndexInDeal(const long posId, const datetime t, const long timeMsc,
+                 const ulong ticket, const double price, const long type,
+                 const long magic, const string comment)
   {
    int n = ArraySize(g_inPos);
    ArrayResize(g_inPos,     n + 1);
    ArrayResize(g_inTime,    n + 1);
+   ArrayResize(g_inTimeMsc, n + 1);
+   ArrayResize(g_inTicket,  n + 1);
    ArrayResize(g_inPrice,   n + 1);
    ArrayResize(g_inType,    n + 1);
    ArrayResize(g_inMagic,   n + 1);
    ArrayResize(g_inComment, n + 1);
    g_inPos[n]     = posId;
    g_inTime[n]    = t;
+   g_inTimeMsc[n] = timeMsc;
+   g_inTicket[n]  = ticket;
    g_inPrice[n]   = price;
    g_inType[n]    = type;
    g_inMagic[n]   = magic;
@@ -172,12 +181,15 @@ void IndexInDeal(const long posId, const datetime t, const double price,
   }
 
 //+------------------------------------------------------------------+
-//| position_id から索引位置を引く（見つからなければ -1）             |
+//| 指定ディールより前の、同じposition_idの建玉情報を引く。           |
+//| 途転行自身を参照しないので、途転で決済した旧建玉の情報を使える。  |
 //+------------------------------------------------------------------+
-int FindInDeal(const long posId)
+int FindInDeal(const long posId, const long beforeMsc, const ulong beforeTicket)
   {
    for(int i = ArraySize(g_inPos) - 1; i >= 0; i--)
-      if(g_inPos[i] == posId)
+      if(g_inPos[i] == posId
+         && (g_inTimeMsc[i] < beforeMsc
+             || (g_inTimeMsc[i] == beforeMsc && g_inTicket[i] < beforeTicket)))
          return(i);
    return(-1);
   }
@@ -241,6 +253,8 @@ void OnStart()
    // ---- 1周目: エントリー側を索引化 ----
    ArrayResize(g_inPos, 0);
    ArrayResize(g_inTime, 0);
+   ArrayResize(g_inTimeMsc, 0);
+   ArrayResize(g_inTicket, 0);
    ArrayResize(g_inPrice, 0);
    ArrayResize(g_inType, 0);
    ArrayResize(g_inMagic, 0);
@@ -250,10 +264,12 @@ void OnStart()
       ulong ticket = HistoryDealGetTicket(i);
       if(ticket == 0)
          continue;
-      if(HistoryDealGetInteger(ticket, DEAL_ENTRY) != DEAL_ENTRY_IN)
+      long entry = HistoryDealGetInteger(ticket, DEAL_ENTRY);
+      if(entry != DEAL_ENTRY_IN && entry != DEAL_ENTRY_INOUT)
          continue;
       IndexInDeal(HistoryDealGetInteger(ticket, DEAL_POSITION_ID),
                   (datetime)HistoryDealGetInteger(ticket, DEAL_TIME),
+                  HistoryDealGetInteger(ticket, DEAL_TIME_MSC), ticket,
                   HistoryDealGetDouble(ticket, DEAL_PRICE),
                   HistoryDealGetInteger(ticket, DEAL_TYPE),
                   HistoryDealGetInteger(ticket, DEAL_MAGIC),
@@ -274,6 +290,7 @@ void OnStart()
       long     dealType = HistoryDealGetInteger(ticket, DEAL_TYPE);
       long     entry    = HistoryDealGetInteger(ticket, DEAL_ENTRY);
       datetime dealTime = (datetime)HistoryDealGetInteger(ticket, DEAL_TIME);
+      long     dealTimeMsc = HistoryDealGetInteger(ticket, DEAL_TIME_MSC);
 
       bool isBalance = (dealType != DEAL_TYPE_BUY && dealType != DEAL_TYPE_SELL);
       if(isBalance)
@@ -324,7 +341,7 @@ void OnStart()
       string   typeStr   = "";
       string   openTime  = "";
       string   openPrice = "";
-      int      idx       = (posId != 0 ? FindInDeal(posId) : -1);
+      int      idx       = (posId != 0 ? FindInDeal(posId, dealTimeMsc, ticket) : -1);
       if(idx >= 0)
         {
          typeStr   = PosTypeName(g_inType[idx]);

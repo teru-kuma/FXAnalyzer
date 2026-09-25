@@ -39,10 +39,11 @@
 //
 //    profit = OrderProfit()  … HTMLレポートのProfit列と同じ意味
 //    net    = profit + commission + swap  … 手数料込みの実質損益
-//    アナライザは "profit" 列を使うのでHTMLレポートと数字が一致する。
+//    アナライザの成績指標は "net" 列を使う。取引一覧には比較用として
+//    profit と、手数料・スワップを含む net の両方を表示する。
 //+------------------------------------------------------------------+
 #property copyright "MT4/MT5 Trade Analyzer"
-#property version   "1.00"
+#property version   "1.10"
 #property strict
 #property show_inputs
 

@@ -564,7 +564,7 @@
               <th data-k="label">EA名</th><th data-k="status" title="初回クリックでは 停止候補 → 改善 → 観察 → 検証中 → 継続 → 未設定 の順に並びます">運用判断</th><th class="compare-ea-cell">比較</th>
               <th data-k="magics">マジック</th><th data-k="symbols">シンボル</th>
               <th class="num" data-k="n">取引数</th>
-              <th class="num" data-k="net">純損益</th><th class="num" data-k="pips">合計pips</th>
+              <th class="num" data-k="net" title="Profit・手数料・スワップ・feeを反映した損益">純損益</th><th class="num" data-k="pips">合計pips</th>
               <th class="num" data-k="winRate">勝率</th><th class="num" data-k="pf">PF</th>
               <th class="num" data-k="maxDD" id="thMaxDD">最大DD</th>
               <th class="num" data-k="avg" id="thAvg">平均</th>
@@ -582,7 +582,7 @@
               <th data-k="openTime">エントリー</th><th data-k="time">イグジット</th>
               <th data-k="ticket">チケット</th><th data-k="symbol">シンボル</th>
               <th data-k="type">種別</th><th data-k="ea">EA名</th><th data-k="magic">マジック</th>
-              <th class="num" data-k="profit">損益</th><th class="num" data-k="pips">pips</th>
+              <th class="num" data-k="profit">損益（コスト前）</th><th class="num" data-k="cost">コスト</th><th class="num" data-k="net">実質損益</th><th class="num" data-k="pips">pips</th>
               <th data-k="source" class="src-col">ソース</th><th data-k="raw">Comment(生)</th>
             </tr></thead><tbody></tbody>
           </table>
@@ -802,7 +802,7 @@ var RE_BAD   = /�/g;
 var UNKNOWN_EA = '(不明)';   /* 「(不明)」 */
 
 /* Web版・スマホ版は同一HTMLのレスポンシブ表示なので、版番号もここだけで管理する。 */
-var APP_VERSION = 'v0.9';
+var APP_VERSION = 'v1.0';
 function applyAppVersion() {
   document.title = 'EA Performance Lab (' + APP_VERSION + ')';
   var el = document.getElementById('appVersion');
@@ -1686,16 +1686,41 @@ function parseReport(html) {
 function parseDelimited(text) {
   var diag = newDiag();
   var cash = [];
-  var lines = text.split(/\r?\n/).filter(function (l) { return l.trim(); });
-  if (!lines.length) { buildWarnings(diag); return { trades: [], diag: diag, cash: cash }; }
+  /* CSV はコメントや数値を引用符で囲み、その中にカンマ・改行・"" を含められる。
+     split(',') では列がずれて損益まで誤読するため、TSVにも使える最小限の
+     RFC 4180 形式のパーサでレコードに分ける。 */
+  var firstLine = text.split(/\r?\n/, 1)[0] || '';
+  if (!firstLine.trim()) { buildWarnings(diag); return { trades: [], diag: diag, cash: cash }; }
 
-  var tabs = (lines[0].match(/\t/g) || []).length;
-  var commas = (lines[0].match(/,/g) || []).length;
+  var tabs = (firstLine.match(/\t/g) || []).length;
+  var commas = (firstLine.match(/,/g) || []).length;
   var delim = tabs >= commas ? '\t' : ',';
-  var split = function (l) {
-    return l.split(delim).map(function (s) { return s.replace(/^"|"$/g, '').trim(); });
-  };
-  var head = split(lines[0]).map(function (s) { return s.toLowerCase(); });
+  var rows = [], row = [], field = '', quoted = false;
+  for (var pos = 0; pos < text.length; pos++) {
+    var ch = text.charAt(pos);
+    if (quoted) {
+      if (ch === '"') {
+        if (text.charAt(pos + 1) === '"') { field += '"'; pos++; }
+        else quoted = false;
+      } else field += ch;
+      continue;
+    }
+    if (ch === '"' && field === '') { quoted = true; continue; }
+    if (ch === delim) { row.push(field.trim()); field = ''; continue; }
+    if (ch === '\r' || ch === '\n') {
+      if (ch === '\r' && text.charAt(pos + 1) === '\n') pos++;
+      row.push(field.trim());
+      if (row.some(function (v) { return v !== ''; })) rows.push(row);
+      row = []; field = '';
+      continue;
+    }
+    field += ch;
+  }
+  row.push(field.trim());
+  if (row.some(function (v) { return v !== ''; })) rows.push(row);
+  if (!rows.length) { buildWarnings(diag); return { trades: [], diag: diag, cash: cash }; }
+
+  var head = rows[0].map(function (s) { return s.toLowerCase(); });
   var idx = {
     ticket:     findCol(head, ['ticket','position','order','deal']),
     time:       findCol(head, ['close time','closetime','time','date']),
@@ -1715,7 +1740,7 @@ function parseDelimited(text) {
     comment:  findCol(head, ['comment','remark']),
     ea:       findCol(head, ['ea','ea name','expert','name'])
   };
-  diag.rowCount = lines.length;
+  diag.rowCount = rows.length;
   diag.headerLen = head.length;
   diag.headers.push({
     no: 1, row: 0, len: head.length,
@@ -1724,8 +1749,8 @@ function parseDelimited(text) {
   });
 
   var trades = [];
-  for (var i = 1; i < lines.length; i++) {
-    var c = split(lines[i]);
+  for (var i = 1; i < rows.length; i++) {
+    var c = rows[i];
     var profit = parseNum(idx.profit >= 0 ? c[idx.profit] : '');
     var costValue = function (key) {
       var value = parseNum(idx[key] >= 0 ? c[idx[key]] : '');
@@ -2140,7 +2165,7 @@ function renderCashTable() {
       + '<td>' + esc(c.time) + '</td>'
       + '<td>' + esc(c.kind) + '</td>'
       + '<td class="num ' + cls(c.amount) + '">' + fx(c.amount) + '</td>'
-      + '<td class="num">' + fx(balanceAt(series, c.ymd)) + '</td>'
+      + '<td class="num">' + fx(balanceAt(series, balanceTimeKey(c.time, true))) + '</td>'
       + '<td title="' + esc(c.note) + '">' + esc(c.note) + '</td>'
       + '<td class="src-col"' + (multi ? '' : ' hidden') + '>' + esc(c.source || '') + '</td>'
       + '</tr>';
@@ -2190,7 +2215,7 @@ function dailyByGroup(trades, dim, unit) {
   var map = new Map(), daySet = {};
   trades.forEach(function (t) {
     if (!t.closed) return;
-    var v = isPips ? t.pips : t.profit;
+    var v = isPips ? t.pips : moneyValue(t);
     if (v === null || v === undefined || !isFinite(v)) return;
     var d = ymd(t);
     if (!d) return;
@@ -2413,8 +2438,8 @@ function renderCompareSummary(dg, trades, unit) {
       return t.closed && dimValueOf(t, 'ea') === group.raw;
     });
     var list = isPips ? moneyList.filter(function (t) { return typeof t.pips === 'number'; }) : moneyList;
-    var s = stats(list, unit);
-    var money = stats(moneyList, 'profit');
+    var s = stats(list, unit === 'pips' ? 'pips' : 'net');
+    var money = stats(moneyList, 'net');
     if (!s || !money) return '';
     var status = eaStatusLabel(group.label);
     return '<article class="compare-summary-card" style="border-top-color:' + groupColor(i) + '">'
@@ -2553,13 +2578,13 @@ function renderCompare(trades, dim, unit) {
 function portfolioHistoryData(trades, unit) {
   var isPips = unit === 'pips';
   var closed = trades.filter(function (t) {
-    return t.closed && (isPips ? typeof t.pips === 'number' : isFinite(t.profit));
+    return t.closed && (isPips ? typeof t.pips === 'number' : isFinite(moneyValue(t)));
   });
   var bySymbol = {};
   var direction = { buy: { n: 0, value: 0 }, sell: { n: 0, value: 0 } };
 
   closed.forEach(function (t) {
-    var value = isPips ? t.pips : t.profit;
+    var value = isPips ? t.pips : moneyValue(t);
     var symbol = t.symbol || '-';
     if (!bySymbol[symbol]) bySymbol[symbol] = { label: symbol, n: 0, value: 0 };
     bySymbol[symbol].n++;
@@ -2623,6 +2648,16 @@ function renderPortfolioInsights(trades, unit) {
   document.getElementById('directionBias').innerHTML = directionHtml;
 }
 
+/* 日時文字列を残高イベントの比較キーにする。時刻の無い行は日末として扱うため、
+   日付だけの入出金・期間終端もその日のすべての確定損益を含む。 */
+function balanceTimeKey(value, endOfDay) {
+  var day = ymdOf(value);
+  if (!day) return '';
+  var t = String(value || '').match(/(?:T|\s)(\d{1,2}):(\d{2})(?::(\d{2}))?/);
+  if (!t) return day + (endOfDay ? ' 23:59:59' : ' 00:00:00');
+  return day + ' ' + ('0' + t[1]).slice(-2) + ':' + t[2] + ':' + (t[3] || '00');
+}
+
 /* 口座残高の推移を作る。
    残高 = それまでの入出金の合計 + それまでの確定損益の合計。
    履歴が口座開設時から揃っていれば実際の残高と一致する。
@@ -2636,20 +2671,21 @@ function balanceSeries(source) {
     return !selSrc || selSrc.has(sourceName || '-');
   }
   state.cash.forEach(function (c) {
-    if (c.ymd && allowed(c.source)) ev.push({ ymd: c.ymd, v: c.amount });
+    var at = balanceTimeKey(c.time, true);
+    if (at && allowed(c.source)) ev.push({ ymd: c.ymd, at: at, v: c.amount });
   });
   state.trades.forEach(function (t) {
     var d = ymd(t);
     if (!d || !t.closed) return;
     if (!allowed(t.source)) return;
-    ev.push({ ymd: d, v: isFinite(t.net) ? t.net : t.profit });
+    ev.push({ ymd: d, at: balanceTimeKey(t.time, true), v: moneyValue(t) });
   });
-  ev.sort(function (a, b) { return a.ymd.localeCompare(b.ymd); });
+  ev.sort(function (a, b) { return a.at.localeCompare(b.at); });
 
   var run = 0, out = [];
   for (var i = 0; i < ev.length; i++) {
     run += ev[i].v;
-    out.push({ ymd: ev[i].ymd, bal: run });
+    out.push({ ymd: ev[i].ymd, at: ev[i].at, bal: run });
   }
   return out;
 }
@@ -2657,8 +2693,9 @@ function balanceSeries(source) {
 /* ある日付の直前時点の残高（その日を含まない） */
 function balanceBefore(series, ymdStr) {
   var b = 0;
+  var cutoff = balanceTimeKey(ymdStr, false);
   for (var i = 0; i < series.length; i++) {
-    if (ymdStr && series[i].ymd >= ymdStr) break;
+    if (cutoff && series[i].at >= cutoff) break;
     b = series[i].bal;
   }
   return b;
@@ -2666,8 +2703,9 @@ function balanceBefore(series, ymdStr) {
 
 function balanceAt(series, ymdStr) {
   var b = 0;
+  var cutoff = balanceTimeKey(ymdStr, true);
   for (var i = 0; i < series.length; i++) {
-    if (ymdStr && series[i].ymd > ymdStr) break;
+    if (cutoff && series[i].at > cutoff) break;
     b = series[i].bal;
   }
   return b;
@@ -2699,7 +2737,7 @@ function renderAccountSnapshot() {
   var to = document.getElementById('dateTo').value;
   var rows = labels.map(function (label) {
     var accountTrades = shown.filter(function (t) { return (t.source || '-') === label; });
-    var summary = stats(accountTrades, 'profit');
+    var summary = stats(accountTrades, 'net');
     var series = balanceSeries(label);
     var balance = balanceAt(series, to || '');
     var cash = filteredCash().reduce(function (sum, c) {
@@ -3499,11 +3537,15 @@ on('compareSelectionClear', 'click', function () {
 });
 
 /* ---------------------------------------------------------------- 集計 */
-/* key は 'profit'（口座通貨）か 'pips'。
+/* key は 'net'（手数料等を含む口座通貨）か 'pips'。
    pips は口座通貨に依存しないので、通貨の違う口座を混ぜたときはこちらを見る。
    pipsが計算できない行（価格列が無い等）は 0 として扱わず件数から外す。 */
+function moneyValue(t) {
+  return isFinite(t.net) ? t.net : t.profit;
+}
+
 function stats(trades, key) {
-  key = key || 'profit';
+  key = key || 'net';
   if (key === 'pips') {
     trades = trades.filter(function (t) { return typeof t.pips === 'number'; });
   }
@@ -3513,7 +3555,7 @@ function stats(trades, key) {
   /* エクイティカーブのX軸用。equity[0] は開始点なので最初の取引日を入れておく */
   var dates = [ymd(trades[0])];
   for (var i = 0; i < trades.length; i++) {
-    var p = (key === 'pips') ? trades[i].pips : trades[i].profit;
+    var p = (key === 'pips') ? trades[i].pips : moneyValue(trades[i]);
     bal += p;
     equity.push(bal);
     dates.push(ymd(trades[i]));
@@ -3534,7 +3576,7 @@ function stats(trades, key) {
 function maxLossStreak(trades, key) {
   var streak = 0, max = 0;
   for (var i = 0; i < trades.length; i++) {
-    var value = key === 'pips' ? trades[i].pips : trades[i].profit;
+    var value = key === 'pips' ? trades[i].pips : moneyValue(trades[i]);
     if (typeof value !== 'number') continue;
     if (value < 0) { streak++; if (streak > max) max = streak; }
     else if (value > 0) streak = 0;
@@ -3587,7 +3629,7 @@ function cls(n) { return n >= 0 ? 'positive' : 'negative'; }
 function pfStr(v) { return v === Infinity ? 'inf' : v.toFixed(2); }
 /* 指標の意味は名前だけでは伝わらないので、ラベル横のマークに説明を出す */
 var STAT_HELP = {
-  '純損益': '選択中の取引の損益合計',
+  '純損益': '選択中の取引の実質損益（Profit＋手数料＋スワップ＋fee等）の合計',
   '合計pips': '選択中の取引のpips合計',
   '最大DD': '累積損益が過去の最高値からどれだけ落ち込んだかの最大値',
   '勝率': '損益がプラスの取引の割合（損益0の取引は母数から除く）',
@@ -3721,7 +3763,7 @@ function render() {
   var trades = filtered();
   var unit = document.getElementById('unit').value;      /* 'profit' or 'pips' */
   var isPips = unit === 'pips';
-  var s = stats(trades, unit);
+  var s = stats(trades, isPips ? 'pips' : 'net');
   document.getElementById('tradeCount').textContent = trades.length + ' 件';
 
   /* 0件のとき「データなし」だけだと、絞り込みで消えたのか
@@ -3833,8 +3875,8 @@ function render() {
     g.list.push(t);
   }
   var rows = Array.from(groups.values()).map(function (g) {
-    g.s = stats(g.list, unit) || stats(g.list, 'profit');
-    g.money = stats(g.list, 'profit');
+    g.s = stats(g.list, isPips ? 'pips' : 'net') || stats(g.list, 'net');
+    g.money = stats(g.list, 'net');
     g.pips = stats(g.list, 'pips');
     return g;
   });
@@ -3905,7 +3947,7 @@ function render() {
       + '<td class="num">' + fmt(g.s.maxDD) + '</td>'
       + '<td class="num ' + cls(g.s.avg) + '">' + fmt(g.s.avg) + '</td>'
       + '</tr>';
-  }).join('') || '<tr><td colspan="11">データなし</td></tr>';
+  }).join('') || '<tr><td colspan="12">データなし</td></tr>';
 
   /* 取引一覧（既定はイグジットの新しい順）。ページングで50件ずつ */
   var sig = filterSignature();
@@ -3913,6 +3955,8 @@ function render() {
   var sorted = sortRows(trades, 'tradeTable', function (t, k) {
     if (k === 'pips') return (typeof t.pips === 'number') ? t.pips : null;
     if (k === 'profit') return t.profit;
+    if (k === 'cost') return moneyValue(t) - t.profit;
+    if (k === 'net') return moneyValue(t);
     return t[k] == null ? '' : t[k];
   });
   var pages = pageCount(sorted.length);
@@ -3955,13 +3999,15 @@ function render() {
       + '<td title="' + esc(t.ea) + '">' + esc(t.ea) + '</td>'
       + '<td>' + esc(t.magic) + '</td>'
       + '<td class="num ' + cls(t.profit) + '">' + fx(t.profit) + '</td>'
+      + '<td class="num ' + cls(moneyValue(t) - t.profit) + '">' + fx(moneyValue(t) - t.profit) + '</td>'
+      + '<td class="num ' + cls(moneyValue(t)) + '">' + fx(moneyValue(t)) + '</td>'
       + '<td class="num ' + (typeof t.pips === 'number' ? cls(t.pips) : '') + '">'
         + (typeof t.pips === 'number' ? fpips(t.pips) : '-') + '</td>'
       + '<td class="src-col"' + (multiSrc ? '' : ' hidden') + '>'
         + esc(t.source || '-') + '</td>'
       + '<td title="' + esc(t.raw) + '">' + rawCell + '</td>'
       + '</tr>';
-  }).join('') || '<tr><td colspan="11">データなし</td></tr>';
+  }).join('') || '<tr><td colspan="13">データなし</td></tr>';
   renderActiveFilters();
 }
 
@@ -3976,7 +4022,7 @@ function mapGroups() {
     if (!groups[key]) groups[key] = { account: account, magic: m, n: 0, net: 0, auto: '', samples: {} };
     var g = groups[key];
     g.n++;
-    g.net += t.profit;
+    g.net += moneyValue(t);
     g.auto = (t.eaAuto !== undefined) ? t.eaAuto : t.ea;
     if (t.raw) g.samples[t.raw] = true;
   }
@@ -4139,10 +4185,10 @@ on('csvTrades', 'click', function () {
   if (!rows.length) { alert('書き出す取引がありません。'); return; }
   downloadText(toCsv(rows,
     ['エントリー','イグジット','チケット','シンボル','種別','EA名','マジック',
-     '損益','pips','ロット','分割数','ソース','コメント'],
+     '損益','コスト','実質損益','pips','ロット','分割数','ソース','コメント'],
     function (t) {
       return [t.openTime, t.closed ? t.time : '', t.ticket, t.symbol, t.type,
-              t.ea, t.magic, t.profit,
+              t.ea, t.magic, t.profit, moneyValue(t) - t.profit, moneyValue(t),
               (typeof t.pips === 'number' ? t.pips : ''),
               (isFinite(t.lots) ? t.lots : ''), t.parts || 1,
               t.source || '', t.raw];
@@ -4202,7 +4248,7 @@ function reportAccountRows(trades) {
   var cash = filteredCash();
   return labels.sort(function (a, b) { return String(a).localeCompare(String(b), 'ja'); }).map(function (label) {
     var accountTrades = trades.filter(function (t) { return (t.source || '-') === label; });
-    var summary = stats(accountTrades, 'profit');
+    var summary = stats(accountTrades, 'net');
     var cashTotal = cash.reduce(function (sum, c) {
       return sum + ((c.source || '-') === label ? c.amount : 0);
     }, 0);
@@ -4222,8 +4268,8 @@ function reportEaRows(trades, unit) {
     g.symbols.add(t.symbol);
   });
   return Array.from(groups.values()).map(function (g) {
-    g.s = stats(g.list, unit) || stats(g.list, 'profit');
-    g.money = stats(g.list, 'profit');
+    g.s = stats(g.list, unit === 'pips' ? 'pips' : 'net') || stats(g.list, 'net');
+    g.money = stats(g.list, 'net');
     return g;
   }).sort(function (a, b) { return b.money.net - a.money.net; });
 }
@@ -4346,7 +4392,7 @@ function reportComparisonSection(trades, unit) {
   var cards = dg.groups.map(function (group, i) {
     var moneyList = compared.filter(function (t) { return t.closed && dimValueOf(t, 'ea') === group.raw; });
     var list = isPips ? moneyList.filter(function (t) { return typeof t.pips === 'number'; }) : moneyList;
-    var s = stats(list, unit), money = stats(moneyList, 'profit');
+    var s = stats(list, unit === 'pips' ? 'pips' : 'net'), money = stats(moneyList, 'net');
     return '<article class="report-compare-card" style="border-top-color:' + groupColor(i) + '"><b>' + esc(group.label) + '</b><span>' + esc(eaStatusLabel(group.label)) + '</span>'
       + '<div>純損益 <strong class="' + cls(money.net) + '">' + fx(money.net) + '</strong></div>'
       + '<div>PF <strong>' + pfStr(s.pf) + '</strong></div><div>最大DD <strong>' + fmt(s.maxDD) + suffix + '</strong></div>'
@@ -4370,7 +4416,7 @@ function reportHtml(trades, unit) {
   var isPips = unit === 'pips';
   var fmt = isPips ? fpips : fx;
   var suffix = isPips ? ' pips' : '';
-  var summary = stats(trades, unit);
+  var summary = stats(trades, isPips ? 'pips' : 'net');
   var accountRows = reportAccountRows(trades);
   var eaRows = reportEaRows(trades, unit);
   var portfolio = portfolioHistoryData(trades, unit);

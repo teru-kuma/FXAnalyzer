@@ -189,8 +189,10 @@ ticket / open time / close time / type / symbol / lots /
 open price / close price / magic / commission / swap / profit / net /
 comment / close comment
 ```
-- `profit` = HTMLレポートのProfit列と同じ意味（アナライザはこれを使う）
+- `profit` = HTMLレポートのProfit列と同じ意味（取引一覧で比較用に表示）
 - `net` = profit + commission + swap（+ MT5はfee）
+
+主要指標・グラフ・EA評価は `net` を使う。これにより、口座残高・リターン率と同じ実質損益基準で比較できる。
 - `close comment` = MT5の決済理由（`sl` `tp` `so` など）。MT4版では常に空
 - タブ区切りにしているのはコメントにカンマが入っても壊れないようにするため
 
