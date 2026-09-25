@@ -3685,8 +3685,10 @@ function mobileDateTime(t) {
 function mobileTradeHtml(t) {
   var net = moneyValue(t);
   var title = (t.symbol || '-') + ' / ' + (t.type || '-') + (t.closed ? '' : '（未決済）');
-  var detail = mobileDateTime(t) + (t.ea && t.ea !== UNKNOWN_EA ? ' ・ ' + t.ea : '');
-  return '<article class="mobile-trade"><div><b>' + esc(title) + '</b><span>' + esc(detail) + '</span></div>'
+  var detail = (t.source || '-') + ' ・ ' + mobileDateTime(t)
+    + (t.ea && t.ea !== UNKNOWN_EA ? ' ・ ' + t.ea : '');
+  return '<article class="mobile-trade"><div><b>' + esc(title) + '</b><span title="' + esc(detail) + '">'
+    + esc(detail) + '</span></div>'
     + '<strong class="' + cls(net) + '">' + fx(net) + '</strong></article>';
 }
 
