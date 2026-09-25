@@ -361,13 +361,12 @@
     .main > *{margin-bottom:12px}
     .side{padding-top:76px;display:flex}
 
-    /* 操作ボタンと6つの画面タブを同じ1行に置くと、スマホではタブの
-       表示領域がほとんど残らない。ボタンを1段目、タブを全幅の2段目に
-       分けて、どの画面へも直接移動できるようにする。 */
+    /* スマホは日々の状況確認に絞る。詳細分析用のタブや出力機能はPCで
+       使う前提にして、ここではデータ追加と絞り込みだけを残す。 */
     .head-row{gap:6px;min-height:0;flex-wrap:wrap;padding-top:8px}
     .head-left{display:none}
     .top-actions{order:1;flex:1 1 100%;margin-left:0;justify-content:flex-end}
-    .top-nav{order:2;flex:1 1 100%;width:100%}
+    .top-nav,#reportExport{display:none}
 
     /* 表は列数が多く、画面幅に押し込むと全列が「…」になって読めない。
        最低幅を持たせて横スクロールに逃がす。
@@ -387,7 +386,6 @@
     .seg button{padding:8px 2px}
     .navrow button{padding:7px 0}
     .tabs button{padding:9px 12px}
-    .top-nav button{padding:14px 5px 12px;font-size:12px}
     .top-actions button{padding:6px 8px;font-size:12px}
     .portfolio-grid{grid-template-columns:1fr}
     .compare-chart-container{height:250px}
