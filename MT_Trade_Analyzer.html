@@ -204,6 +204,7 @@
   .filterbox{width:100%;margin-top:6px}
 
   /* ---- 運用サマリー：数字を目的別に読み分けられるようにする ---- */
+  .mobile-status,.mobile-trade-list{display:none}
   .stats{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px}
   @media (max-width:1120px){.stats{grid-template-columns:1fr}}
   .stat-card{background:var(--panel);border:1px solid var(--line);padding:10px 12px;
@@ -373,6 +374,34 @@
     }
     #reportExport,#filterToggle{display:none}
 
+    /* スマホの状況画面は、詳細グラフや全口座表ではなく、すぐ判断できる
+       最終日時・主要数値・要注意EA・直近取引だけを並べる。 */
+    .mobile-status{display:block}
+    .home-desktop,.trade-desktop{display:none!important}
+    .mobile-data-age{display:flex;justify-content:space-between;gap:12px;align-items:baseline;
+                     padding:9px 11px;background:#eef3fb;border:1px solid #cbd8ee;
+                     border-radius:7px;font-size:11px;color:var(--sub)}
+    .mobile-data-age strong{color:var(--ink);font:700 12px Consolas,"Cascadia Mono",monospace;
+                            text-align:right}
+    .mobile-kpis{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:7px;margin:10px 0}
+    .mobile-kpi{background:var(--panel);border:1px solid var(--line);border-radius:7px;padding:9px 8px}
+    .mobile-kpi span{display:block;font-size:10.5px;color:var(--sub);margin-bottom:4px}
+    .mobile-kpi strong{display:block;font:700 14px Consolas,"Cascadia Mono",monospace;white-space:nowrap;
+                       overflow:hidden;text-overflow:ellipsis}
+    .mobile-section{background:var(--panel);border:1px solid var(--line);border-radius:7px;
+                    padding:11px 12px;margin-top:10px}
+    .mobile-section h3{margin:0 0 8px;font-size:12px;color:var(--sub);letter-spacing:.04em}
+    .mobile-alert,.mobile-trade{display:flex;justify-content:space-between;gap:10px;align-items:center;
+                                padding:8px 0;border-top:1px solid #edf0f4}
+    .mobile-alert:first-child,.mobile-trade:first-child{border-top:0;padding-top:0}
+    .mobile-alert:last-child,.mobile-trade:last-child{padding-bottom:0}
+    .mobile-alert b,.mobile-trade b{display:block;font-size:12px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+    .mobile-alert span,.mobile-trade span{display:block;margin-top:2px;font-size:10.5px;color:var(--sub)}
+    .mobile-alert strong,.mobile-trade strong{flex:0 0 auto;font:700 12px Consolas,"Cascadia Mono",monospace}
+    .mobile-empty{font-size:11.5px;color:var(--sub);line-height:1.55}
+    .mobile-trade-list{display:block}
+    .mobile-trade-list::before{content:'直近20件';display:block;margin:0 0 8px;font-size:11px;color:var(--sub)}
+
     /* 表は列数が多く、画面幅に押し込むと全列が「…」になって読めない。
        最低幅を持たせて横スクロールに逃がす。
        表の中だけが横に動き、ページ自体は横スクロールしない。 */
@@ -502,16 +531,26 @@
       <div id="results" hidden>
       <div class="view-head">
         <div>
-          <h2 id="viewTitle">運用ホーム</h2>
-          <div class="hint" id="viewSubtitle">運用全体の状態を確認し、次に見るべきEAを見つけます。</div>
+          <h2 id="viewTitle">現在の状況</h2>
+          <div class="hint" id="viewSubtitle">運用全体の損益・残高・ドローダウンの状態を確認します。</div>
         </div>
       </div>
       <div class="active-filters" id="activeFilters"></div>
       <div class="crumbs" id="crumbs"></div>
       <div class="banner warn" id="noMatch" hidden></div>
       <section class="tabpane" data-pane="home">
-        <div class="stats" id="stats"></div>
-        <section class="card account-snapshot" id="accountSnapshot">
+        <section class="mobile-status" id="mobileStatus">
+          <div class="mobile-data-age"><span>読み込みデータの最終日時</span><strong id="mobileDataUpdated">—</strong></div>
+          <div class="mobile-kpis" id="mobileKpis"></div>
+          <section class="mobile-section">
+            <h3>注意が必要なEA</h3><div id="mobileEaAlerts"></div>
+          </section>
+          <section class="mobile-section">
+            <h3>最近の取引</h3><div id="mobileRecentTrades"></div>
+          </section>
+        </section>
+        <div class="stats home-desktop" id="stats"></div>
+        <section class="card account-snapshot home-desktop" id="accountSnapshot">
           <h3>口座スナップショット</h3>
           <div class="hint">口座ごとの損益・推定残高を、他口座と混ぜずに確認します。</div>
           <div class="scrollnote">表は横にスクロールできます</div>
@@ -525,7 +564,7 @@
           </div>
           <div class="hint balance-note" id="accountBalanceNote"></div>
         </section>
-        <div class="card">
+        <div class="card home-desktop">
           <!-- 入出金を読み込んでいるときだけ「口座残高」を選べる -->
           <div class="seg chartseg" id="chartMode" hidden>
             <button data-cm="pl" class="on">累積損益</button>
@@ -584,8 +623,10 @@
 
       <section class="card tabpane" data-pane="trades" hidden>
         <h3>取引一覧 <span id="tradeCount" class="tag"></span></h3>
-        <div class="scrollnote">表は横にスクロールできます</div>
-        <div class="tbl">
+        <div class="mobile-trade-list" id="mobileTradeList"></div>
+        <div class="trade-desktop">
+          <div class="scrollnote">表は横にスクロールできます</div>
+          <div class="tbl">
           <table id="tradeTable">
             <thead><tr>
               <th data-k="openTime">エントリー</th><th data-k="time">イグジット</th>
@@ -595,8 +636,8 @@
               <th data-k="source" class="src-col">ソース</th><th data-k="raw">Comment(生)</th>
             </tr></thead><tbody></tbody>
           </table>
-        </div>
-        <div class="pager">
+          </div>
+          <div class="pager">
           <label>表示件数
             <select id="pageSize">
               <option value="50">50</option>
@@ -613,6 +654,7 @@
           <input type="number" id="pageJump" min="1" step="1" title="ページ番号へ移動">
           <button id="pageNext">次 ›</button>
           <button id="pageLast" title="末尾へ">»</button>
+          </div>
         </div>
       </section>
 
@@ -3625,6 +3667,66 @@ function dashboardMetrics(trades, s, key, fmt, suffix) {
   ]);
 }
 
+/* スマホは細かな分析ではなく、最後に読み込んだ時点の状態を短時間で確認する。
+   日時順は取引一覧と同じ、決済日時（未決済はエントリー日時）の新しい順にする。 */
+function mobileRecentTrades(trades, count) {
+  return trades.slice().sort(function (a, b) {
+    var at = a.time || a.openTime || '';
+    var bt = b.time || b.openTime || '';
+    return String(bt).localeCompare(String(at));
+  }).slice(0, count);
+}
+
+function mobileDateTime(t) {
+  var value = t.closed ? t.time : t.openTime;
+  return value ? String(value).slice(0, 16) : '日時不明';
+}
+
+function mobileTradeHtml(t) {
+  var net = moneyValue(t);
+  var title = (t.symbol || '-') + ' / ' + (t.type || '-') + (t.closed ? '' : '（未決済）');
+  var detail = mobileDateTime(t) + (t.ea && t.ea !== UNKNOWN_EA ? ' ・ ' + t.ea : '');
+  return '<article class="mobile-trade"><div><b>' + esc(title) + '</b><span>' + esc(detail) + '</span></div>'
+    + '<strong class="' + cls(net) + '">' + fx(net) + '</strong></article>';
+}
+
+function renderMobileStatus(summary, eaRows, recentTrades) {
+  var latest = recentTrades[0];
+  document.getElementById('mobileDataUpdated').textContent = latest ? mobileDateTime(latest) : '—';
+
+  document.getElementById('mobileKpis').innerHTML = summary
+    ? [
+      ['読み込み範囲の損益', fx(summary.net), cls(summary.net)],
+      ['最大DD', fx(summary.maxDD), ''],
+      ['取引数', String(summary.n) + ' 件', '']
+    ].map(function (item) {
+      return '<div class="mobile-kpi"><span>' + item[0] + '</span><strong class="' + item[2] + '">' + item[1] + '</strong></div>';
+    }).join('')
+    : '<div class="mobile-empty">表示できる取引がありません</div>';
+
+  var alerts = eaRows.filter(function (row) {
+    var status = state.eaStatuses[row.label] || '';
+    return status === 'stop' || status === 'improve';
+  }).sort(function (a, b) {
+    return eaStatusPriority(a.label) - eaStatusPriority(b.label) || a.money.net - b.money.net;
+  }).slice(0, 3);
+  document.getElementById('mobileEaAlerts').innerHTML = alerts.length
+    ? alerts.map(function (row) {
+      return '<div class="mobile-alert"><div><b>' + esc(row.label) + '</b><span>'
+        + esc(eaStatusLabel(row.label)) + '</span></div><strong class="' + cls(row.money.net) + '">'
+        + fx(row.money.net) + '</strong></div>';
+    }).join('')
+    : '<div class="mobile-empty">停止候補・改善に設定されたEAはありません</div>';
+
+  document.getElementById('mobileRecentTrades').innerHTML = recentTrades.slice(0, 5).map(mobileTradeHtml).join('')
+    || '<div class="mobile-empty">取引はありません</div>';
+}
+
+function renderMobileTradeList(recentTrades) {
+  document.getElementById('mobileTradeList').innerHTML = recentTrades.map(mobileTradeHtml).join('')
+    || '<div class="mobile-empty">取引はありません</div>';
+}
+
 /* 金額は桁区切りを入れる。4321932.00 のままでは桁が読めず、
    Chart.js のY軸だけ 4,500,000 と区切られていて表記も不統一だった。 */
 function nf(n, d) {
@@ -3889,6 +3991,9 @@ function render() {
     g.pips = stats(g.list, 'pips');
     return g;
   });
+  var mobileRecent = mobileRecentTrades(state.trades, 20);
+  renderMobileStatus(s, rows, mobileRecent);
+  renderMobileTradeList(mobileRecent);
   var totalEaRows = rows.length;
   rows = rows.filter(function (g) { return matchesEaStatusFilter(g.label); });
   rows = sortRows(rows, 'groupTable', function (g, k) {
