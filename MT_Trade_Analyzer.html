@@ -361,12 +361,17 @@
     .main > *{margin-bottom:12px}
     .side{padding-top:76px;display:flex}
 
-    /* スマホは日々の状況確認に絞る。詳細分析用のタブや出力機能はPCで
-       使う前提にして、ここではデータ追加と絞り込みだけを残す。 */
+    /* スマホは日々の状況確認と取引履歴だけに絞る。詳細分析用の画面と
+       絞り込み・出力機能はPCで使う前提にして、データ追加だけを残す。 */
     .head-row{gap:6px;min-height:0;flex-wrap:wrap;padding-top:8px}
     .head-left{display:none}
     .top-actions{order:1;flex:1 1 100%;margin-left:0;justify-content:flex-end}
-    .top-nav,#reportExport{display:none}
+    .top-nav{order:2;display:flex;flex:1 1 100%;width:100%;overflow:visible}
+    .top-nav button{display:none}
+    .top-nav button[data-tab="home"],.top-nav button[data-tab="trades"]{
+      display:block;flex:1 1 0;padding:12px 8px 10px;font-size:13px;text-align:center
+    }
+    #reportExport,#filterToggle{display:none}
 
     /* 表は列数が多く、画面幅に押し込むと全列が「…」になって読めない。
        最低幅を持たせて横スクロールに逃がす。
@@ -410,7 +415,7 @@
         <div class="hint" id="headMeta">完全クライアントサイド動作（読み込んだデータは外部へ送信されません）</div>
       </div>
       <nav class="top-nav" id="topNav" aria-label="主要画面">
-        <button data-tab="home" class="on">ホーム</button>
+        <button data-tab="home" class="on">現在の状況</button>
         <button data-tab="group">EA分析</button>
         <button data-tab="compare">比較</button>
         <button data-tab="trades">取引履歴</button>
@@ -3029,7 +3034,7 @@ document.querySelector('.side').addEventListener('toggle', function (e) {
    主目的ごとに上部ナビゲーションで切り替える。データ追加と絞り込みは
    分析面積を奪わない右パネルに置き、適用中の条件だけを本文に常時表示する。 */
 var VIEW_META = {
-  home:      { title: '運用ホーム', subtitle: '運用全体の状態を確認し、次に見るべきEAを見つけます。' },
+  home:      { title: '現在の状況', subtitle: '運用全体の損益・残高・ドローダウンの状態を確認します。' },
   group:     { title: 'EA分析', subtitle: 'EAごとの成績を比較し、継続・観察・改善の判断材料を確認します。' },
   compare:   { title: 'EA比較', subtitle: '選択したEAの連動性と、損失日の重なりを確認します。' },
   trades:    { title: '取引履歴', subtitle: '個々の取引を絞り込み、成績の背景を確認します。' },
