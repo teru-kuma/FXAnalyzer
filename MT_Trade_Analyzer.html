@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>MT4/MT5 Trade Analyzer (v0.8)</title>
+<title>EA Performance Lab</title>
 <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 <style>
   :root{
@@ -402,7 +402,7 @@
   <header class="page-head">
     <div class="head-row">
       <div class="head-left">
-        <h1>EA Performance Lab <span class="ver">v0.9</span></h1>
+        <h1>EA Performance Lab <span class="ver" id="appVersion"></span></h1>
         <div class="hint" id="headMeta">完全クライアントサイド動作（読み込んだデータは外部へ送信されません）</div>
       </div>
       <nav class="top-nav" id="topNav" aria-label="主要画面">
@@ -800,6 +800,14 @@ var RE_WORD  = /[A-Za-z぀-ヿ一-鿿]/;
 var RE_SPACE = /[ 　]/g;
 var RE_BAD   = /�/g;
 var UNKNOWN_EA = '(不明)';   /* 「(不明)」 */
+
+/* Web版・スマホ版は同一HTMLのレスポンシブ表示なので、版番号もここだけで管理する。 */
+var APP_VERSION = 'v0.9';
+function applyAppVersion() {
+  document.title = 'EA Performance Lab (' + APP_VERSION + ')';
+  var el = document.getElementById('appVersion');
+  if (el) el.textContent = APP_VERSION;
+}
 
 var state = { trades: [], sources: [], diag: null, chart: null, ddChart: null,
               compareChart: null, compareDdChart: null,
@@ -4762,6 +4770,7 @@ on('applyPattern', 'click', function () {
 });
 
 /* ------------------------------------------------------------ 起動処理 */
+applyAppVersion();
 loadSettings();
 applyPeriod();
 state.overrides = loadOverrides();
