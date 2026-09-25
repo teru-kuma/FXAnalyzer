@@ -133,6 +133,15 @@
   .corr-na,.muted{color:#b3bac4}
   .compare-chart-container{position:relative;height:300px;margin-top:8px}
   .compare-dd-container{position:relative;height:130px;margin-top:7px}
+  .compare-summary{margin-top:14px}
+  .compare-summary-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:9px;margin-top:8px}
+  .compare-summary-card{border:1px solid var(--line);border-top:3px solid var(--accent);border-radius:5px;padding:9px 10px;background:#fbfcfe;min-width:0}
+  .compare-summary-head{display:flex;align-items:center;gap:6px;min-width:0}
+  .compare-summary-head strong{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:12px}
+  .compare-summary-head .tag{margin-left:auto;white-space:nowrap}
+  .compare-summary-metrics{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:7px;margin-top:9px}
+  .compare-summary-metric{min-width:0;color:var(--sub);font-size:10px}
+  .compare-summary-metric b{display:block;margin-top:2px;color:var(--ink);font:700 12px Consolas,"Cascadia Mono",monospace;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
   .portfolio-insights{margin-top:20px;padding-top:16px;border-top:1px solid var(--line)}
   .portfolio-summary{margin-bottom:12px}
   .portfolio-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px}
@@ -267,9 +276,10 @@
   .compare-picker .compare-summary{font-size:11px;color:var(--sub);min-width:150px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
   .compare-ea-cell{text-align:center}
   .compare-ea-check{width:15px;height:15px;vertical-align:middle;cursor:pointer}
-  #mapTable th:nth-child(1){width:12%}
-  #mapTable th:nth-child(2),#mapTable th:nth-child(3){width:20%}
-  #mapTable th:nth-child(4){width:12%}
+  #mapTable th:nth-child(1){width:16%}
+  #mapTable th:nth-child(2){width:11%}
+  #mapTable th:nth-child(3),#mapTable th:nth-child(4){width:18%}
+  #mapTable th:nth-child(5){width:12%}
   td.num,th.num{text-align:right}
   th[data-k]{cursor:pointer;user-select:none}
   th[data-k]::after{content:'↕';color:#a7b1c1;font-size:10px;margin-left:4px}
@@ -357,7 +367,7 @@
     .tbl{overflow-x:auto;-webkit-overflow-scrolling:touch}
     #tradeTable{min-width:820px}
     #groupTable{min-width:900px}
-    #mapTable{min-width:700px}
+    #mapTable{min-width:820px}
     #sourceManageTable{min-width:760px}
     #corrTable,#worstTable{min-width:640px}
     #accountTable{min-width:720px}
@@ -375,6 +385,7 @@
     .top-actions button{padding:6px 8px;font-size:12px}
     .portfolio-grid{grid-template-columns:1fr}
     .compare-chart-container{height:250px}
+    .compare-summary-grid{grid-template-columns:repeat(2,minmax(0,1fr))}
   }
 
   /* タッチ操作の端末（スマホ・タブレット）ではドラッグ&ドロップができないので、
@@ -602,6 +613,11 @@
         </div>
         <div class="hint" id="cmpNote"></div>
         <div id="cmpBody" hidden>
+          <section class="compare-summary" id="compareSummarySection">
+            <h4 class="cmp-h" style="margin-top:0">比較サマリー</h4>
+            <div class="hint">確定取引のみを対象に、選んだEAを同じ期間・単位で比較します。</div>
+            <div class="compare-summary-grid" id="compareSummaryCards"></div>
+          </section>
           <section id="compareTrendSection">
           <h4 class="cmp-h">EA別の累積損益推移</h4>
           <div class="hint">選んだEAごとの累積損益です。線の色は、下の相関表・ワースト日表と共通です。</div>
@@ -689,11 +705,11 @@
           マジックごとにEA名を手で指定できます。空欄にすると自動判定に戻ります。
           マジック <code>0</code> は「マジックが取れなかった取引」のまとめ行なので、
           ここに名前を付けると該当する全取引が同じ名前になります。
-          入力はこのブラウザに自動保存され、次に同じマジックを読み込んだときにも適用されます。
-          別のPCやブラウザで使う場合、または保存が効かない場合はJSONで書き出してください。
+          入力はこのブラウザに自動保存され、次に同じ口座・マジックを読み込んだときにも適用されます。
+          口座ごとに同じマジック番号を別EAへ対応付けられます。別のPCやブラウザで使う場合、または保存が効かない場合はJSONで書き出してください。
         </div>
         <div class="controls">
-          <label class="chk"><input type="checkbox" id="autoMerge" checked> EA名の表記ゆれをマジック単位で統合</label>
+          <label class="chk"><input type="checkbox" id="autoMerge" checked> EA名の表記ゆれを口座・マジック単位で統合</label>
           <label class="chk"><input type="checkbox" id="mapUnresolvedOnly"> 要確認だけ表示</label>
           <button id="mapExport">JSONで書き出し</button>
           <label>JSONを読み込み <input type="file" id="mapImport" accept=".json,.txt"></label>
@@ -710,7 +726,7 @@
         <div class="tbl">
           <table id="mapTable">
             <thead><tr>
-              <th>マジック</th><th>自動判定</th><th>EA名（手動指定）</th><th>状態</th>
+              <th>口座</th><th>マジック</th><th>自動判定</th><th>EA名（手動指定）</th><th>状態</th>
               <th class="num">取引数</th><th class="num">純損益</th><th>例（生コメント）</th>
             </tr></thead><tbody></tbody>
           </table>
@@ -796,13 +812,16 @@ var state = { trades: [], sources: [], diag: null, chart: null, ddChart: null,
               drill: [],         /* 掘り下げて固定した軸 [{dim,value}] */
               page: 0, tab: 'home', lastSig: '' };
 
-/* ------------------------------------------- EA名の手動指定（マジック単位）
+/* -------------------------------------- EA名の手動指定（口座別マジック単位）
    自動判定はどこまで行っても推測なので、最後は手で決められるようにする。
-   キーはマジック番号。抽出スクリプト経由なら正確に取れており、
-   コメントのパターン単位より対象が少なくて済む。
+   キーは「口座表示名 + マジック番号」。同じマジックを複数口座で使っても、
+   口座別にEA名を決められる。口座番号を履歴から安定して取れない形式もあるため、
+   現時点ではデータ管理で設定する口座表示名を口座識別子として使う。
    localStorage は file:// で使えない環境があるため必ず try/catch し、
    保存できない場合はJSON書き出しを案内する。 */
-var MAP_KEY = 'mt_trade_analyzer_ea_map_v1';
+var MAP_KEY = 'mt_trade_analyzer_ea_map_v2';
+var OLD_MAP_KEY = 'mt_trade_analyzer_ea_map_v1';
+var MAP_VERSION = 2;
 var EA_STATUS_KEY = 'mt_trade_analyzer_ea_status_v1';
 var SOURCE_ALIAS_KEY = 'mt_trade_analyzer_source_alias_v1';
 var EA_STATUS_OPTIONS = [
@@ -886,18 +905,101 @@ function setMapStatus(msg) {
   if (el) el.textContent = msg || '';
 }
 
+function emptyOverrides() {
+  return { version: MAP_VERSION, accounts: {} };
+}
+
+function copyMapEntries(from) {
+  var to = {};
+  if (!from || typeof from !== 'object' || Array.isArray(from)) return to;
+  Object.keys(from).forEach(function (key) {
+    if (typeof from[key] === 'string' && from[key].trim()) to[key] = from[key].trim();
+  });
+  return to;
+}
+
+/* v1の { "12345": "EA名" } も読み込み、初回のデータ読込時に口座別へ複製する。 */
+function normalizeOverrides(obj) {
+  var next = emptyOverrides();
+  if (!obj || typeof obj !== 'object' || Array.isArray(obj)) return next;
+  if (obj.version === MAP_VERSION && obj.accounts && typeof obj.accounts === 'object' && !Array.isArray(obj.accounts)) {
+    Object.keys(obj.accounts).forEach(function (account) {
+      var entries = copyMapEntries(obj.accounts[account]);
+      if (Object.keys(entries).length) next.accounts[account] = entries;
+    });
+    var legacy = copyMapEntries(obj.legacy);
+    if (Object.keys(legacy).length) next.legacy = legacy;
+    return next;
+  }
+  /* 旧形式は一時領域へ置き、読み込まれている全口座に一度だけ移行する。 */
+  next.legacy = copyMapEntries(obj);
+  return next;
+}
+
+function overrideCount(overrides) {
+  var n = 0;
+  Object.keys((overrides && overrides.accounts) || {}).forEach(function (account) {
+    n += Object.keys(overrides.accounts[account] || {}).length;
+  });
+  n += Object.keys((overrides && overrides.legacy) || {}).length;
+  return n;
+}
+
+function overrideFor(account, magic) {
+  var accounts = state.overrides.accounts || {};
+  var entries = accounts[account] || {};
+  return entries[magic] || '';
+}
+
+function setOverride(account, magic, ea) {
+  if (!state.overrides.accounts) state.overrides.accounts = {};
+  if (!state.overrides.accounts[account]) state.overrides.accounts[account] = {};
+  if (ea) state.overrides.accounts[account][magic] = ea;
+  else {
+    delete state.overrides.accounts[account][magic];
+    if (!Object.keys(state.overrides.accounts[account]).length) delete state.overrides.accounts[account];
+  }
+}
+
+function migrateLegacyOverrides() {
+  var legacy = state.overrides.legacy;
+  if (!legacy || !Object.keys(legacy).length || !state.sources.length) return 0;
+  var copied = 0;
+  state.sources.forEach(function (source) {
+    var account = source.label || '-';
+    Object.keys(legacy).forEach(function (magic) {
+      if (!overrideFor(account, magic)) {
+        setOverride(account, magic, legacy[magic]);
+        copied++;
+      }
+    });
+  });
+  delete state.overrides.legacy;
+  return copied;
+}
+
+function moveAccountOverrides(previous, next) {
+  if (previous === next || !state.overrides.accounts || !state.overrides.accounts[previous]) return false;
+  var from = state.overrides.accounts[previous];
+  if (!state.overrides.accounts[next]) state.overrides.accounts[next] = {};
+  Object.keys(from).forEach(function (magic) {
+    if (!state.overrides.accounts[next][magic]) state.overrides.accounts[next][magic] = from[magic];
+  });
+  delete state.overrides.accounts[previous];
+  return true;
+}
+
 function loadOverrides() {
   try {
-    var raw = localStorage.getItem(MAP_KEY);
-    var obj = raw ? JSON.parse(raw) : {};
-    return (obj && typeof obj === 'object' && !Array.isArray(obj)) ? obj : {};
+    var raw = localStorage.getItem(MAP_KEY) || localStorage.getItem(OLD_MAP_KEY);
+    return normalizeOverrides(raw ? JSON.parse(raw) : {});
   } catch (e) {
-    return {};
+    return emptyOverrides();
   }
 }
 
 function saveOverrides() {
-  var n = Object.keys(state.overrides).length;
+  var n = overrideCount(state.overrides);
   try {
     localStorage.setItem(MAP_KEY, JSON.stringify(state.overrides));
     setMapStatus('保存しました（' + n + ' 件）');
@@ -970,7 +1072,7 @@ function loadSettings() {
 function applyOverrides(trades) {
   for (var i = 0; i < trades.length; i++) {
     var t = trades[i];
-    var ov = state.overrides[t.magic];
+    var ov = overrideFor(t.source || '-', t.magic);
     if (ov) {
       t.eaAuto = t.ea;      /* 自動判定の結果は対応表に表示するため残す */
       t.ea = ov;
@@ -1102,6 +1204,10 @@ function rebuildFromSources() {
   all.sort(function (a, b) { return a.time.localeCompare(b.time); });
   state.trades = all;
   state.diag = state.sources.length ? state.sources[0].diag : null;
+
+  /* v1の共通マジック対応表が残っていれば、現在読み込んだ各口座へ一度だけ移行する。 */
+  var migrated = migrateLegacyOverrides();
+  if (migrated) saveOverrides();
 
   consolidateEaByMagic(state.trades, state.diag);
   /* ソースごとの取得率も統合後の値に更新する */
@@ -1236,6 +1342,7 @@ document.querySelector('#sourceManageTable tbody').addEventListener('change', fu
   var previous = source.label;
   source.label = next;
   source.trades.forEach(function (t) { t.source = next; });
+  var mappingMoved = moveAccountOverrides(previous, next);
   if (next === source.autoLabel) delete state.sourceAliases[source.fileName];
   else state.sourceAliases[source.fileName] = next;
   if (state.sel.source && state.sel.source.has(previous)) {
@@ -1243,6 +1350,7 @@ document.querySelector('#sourceManageTable tbody').addEventListener('change', fu
     state.sel.source.add(next);
   }
   saveSourceAliases('表示名を「' + next + '」に変更しました。');
+  if (mappingMoved) saveOverrides();
   rebuildFromSources();
 });
 
@@ -1856,10 +1964,10 @@ function aggregateTrades(list) {
   return out;
 }
 
-/* --------------------------------------- EA名をマジック単位でまとめ直す
+/* ----------------------------------- EA名を口座・マジック単位でまとめ直す
    MT5では同じEAでもコメントに連番やバージョンが付いて
    「GridMaster 12」「GridMaster 47」のように分裂することがある。
-   マジックが正確に取れている（TSV経路）なら、同じマジックは同じEAなので、
+   マジックが正確に取れている（TSV経路）なら、同一口座の同じマジックは同じEAなので、
    そのグループ内のEA名の共通する先頭部分をラベルにして統合できる。
    共通部分が無い場合は最頻値を採用する。 */
 /* グループ内の全名前に共通して現れるトークンだけを残したラベルを作る。
@@ -1901,17 +2009,18 @@ function consolidateEaByMagic(trades, diag) {
     return;
   }
 
-  var byMagic = {};
+  var byAccountMagic = {};
   for (var i = 0; i < trades.length; i++) {
     var t = trades[i];
     if (!t.magic || t.magic === '0') continue;
-    if (!byMagic[t.magic]) byMagic[t.magic] = [];
-    byMagic[t.magic].push(t);
+    var key = (t.source || '-') + '\u0000' + t.magic;
+    if (!byAccountMagic[key]) byAccountMagic[key] = [];
+    byAccountMagic[key].push(t);
   }
   var merged = 0;
 
-  Object.keys(byMagic).forEach(function (m) {
-    var rows = byMagic[m];
+  Object.keys(byAccountMagic).forEach(function (key) {
+    var rows = byAccountMagic[key];
     var names = [];
     for (var i = 0; i < rows.length; i++) {
       if (rows[i].ea && rows[i].ea !== UNKNOWN_EA) names.push(rows[i].ea);
@@ -1936,12 +2045,12 @@ function consolidateEaByMagic(trades, diag) {
 
   if (!diag) return;
   if (merged) {
-    diag.warnings.push('同じマジックのEA名の表記ゆれ ' + merged
+    diag.warnings.push('同一口座・同じマジックのEA名の表記ゆれ ' + merged
       + ' 件を共通部分でまとめました（元の表記はComment列で確認できます）。');
   }
-  var ovN = Object.keys(state.overrides).length;
+  var ovN = overrideCount(state.overrides);
   if (ovN) {
-    diag.warnings.push('EA名の手動指定を ' + ovN + ' マジックに適用しました。');
+    diag.warnings.push('EA名の手動指定を ' + ovN + ' 口座別マジックに適用しました。');
   }
   countEaOk(trades, diag);
 }
@@ -2276,12 +2385,51 @@ function pearson(a, b) {
   return sab / Math.sqrt(saa * sbb);
 }
 
+function compareMetric(label, value, klass) {
+  return '<div class="compare-summary-metric">' + label + '<b class="' + (klass || '') + '">' + value + '</b></div>';
+}
+
+/* グラフと同じ「確定取引・表示単位」でカードを作る。
+   純損益だけは口座通貨の金額を常に併記し、pips表示時にも金額感を失わないようにする。 */
+function renderCompareSummary(dg, trades, unit) {
+  var section = document.getElementById('compareSummarySection');
+  if (!section) return;
+  section.hidden = state.tab !== 'compare';
+  if (state.tab !== 'compare') return;
+
+  var isPips = unit === 'pips';
+  var fmt = isPips ? fpips : fx;
+  var suffix = isPips ? ' pips' : '';
+  document.getElementById('compareSummaryCards').innerHTML = dg.groups.map(function (group, i) {
+    var moneyList = trades.filter(function (t) {
+      return t.closed && dimValueOf(t, 'ea') === group.raw;
+    });
+    var list = isPips ? moneyList.filter(function (t) { return typeof t.pips === 'number'; }) : moneyList;
+    var s = stats(list, unit);
+    var money = stats(moneyList, 'profit');
+    if (!s || !money) return '';
+    var status = eaStatusLabel(group.label);
+    return '<article class="compare-summary-card" style="border-top-color:' + groupColor(i) + '">'
+      + '<div class="compare-summary-head"><span class="dot" style="background:' + groupColor(i) + '"></span>'
+      + '<strong title="' + esc(group.label) + '">' + esc(group.label) + '</strong><span class="tag">' + esc(status) + '</span></div>'
+      + '<div class="compare-summary-metrics">'
+      + compareMetric('純損益', fx(money.net), cls(money.net))
+      + compareMetric('PF', pfStr(s.pf), s.pf >= 1 ? 'positive' : 'negative')
+      + compareMetric('最大DD', fmt(s.maxDD) + suffix, '')
+      + compareMetric('取引数', String(s.n), '')
+      + compareMetric('勝率', s.winRate.toFixed(1) + '%', '')
+      + '</div></article>';
+  }).join('');
+}
+
 /* 比較タブ。チェックしたものが2〜8件のときだけ表を出す */
 function renderCompare(trades, dim, unit) {
   var note = document.getElementById('cmpNote');
   var body = document.getElementById('cmpBody');
   var trendSection = document.getElementById('compareTrendSection');
   if (trendSection) trendSection.hidden = state.tab !== 'compare';
+  var summarySection = document.getElementById('compareSummarySection');
+  if (summarySection) summarySection.hidden = state.tab !== 'compare';
   var isPips = unit === 'pips';
   var f = isPips ? fpips : fx;
   var dimName = dim ? DIM_LABEL[dim] : '';
@@ -2308,6 +2456,7 @@ function renderCompare(trades, dim, unit) {
     return;
   }
   body.hidden = false;
+  renderCompareSummary(dg, trades, unit);
   if (state.tab === 'compare') drawCompareTrends(dg, f);
   note.textContent = (usingBasket ? 'EA分析から選んだEA ' : dimName + ' ') + n + ' 件を比較しています'
     + '（取引のあった ' + dg.days.length + ' 日・' + (isPips ? 'pips' : '金額')
@@ -2858,6 +3007,8 @@ function showTab(name) {
   if (portfolioInsights) portfolioInsights.hidden = name !== 'portfolio';
   var compareTrend = document.getElementById('compareTrendSection');
   if (compareTrend) compareTrend.hidden = name !== 'compare';
+  var compareSummary = document.getElementById('compareSummarySection');
+  if (compareSummary) compareSummary.hidden = name !== 'compare';
   document.querySelector('.main').scrollTop = 0;
   /* EA分析は常にEA名を行単位にする。前画面でマジック等を集計軸にしていても、
      タブを開いた時点で評価ボードと比較チェックをEA単位に描き直す。 */
@@ -3812,8 +3963,10 @@ function mapGroups() {
   for (var i = 0; i < state.trades.length; i++) {
     var t = state.trades[i];
     var m = t.magic || '0';
-    if (!groups[m]) groups[m] = { magic: m, n: 0, net: 0, auto: '', samples: {} };
-    var g = groups[m];
+    var account = t.source || '-';
+    var key = account + '\u0000' + m;
+    if (!groups[key]) groups[key] = { account: account, magic: m, n: 0, net: 0, auto: '', samples: {} };
+    var g = groups[key];
     g.n++;
     g.net += t.profit;
     g.auto = (t.eaAuto !== undefined) ? t.eaAuto : t.ea;
@@ -3821,7 +3974,7 @@ function mapGroups() {
   }
   return Object.keys(groups).map(function (k) {
     var g = groups[k];
-    g.manual = !!state.overrides[g.magic];
+    g.manual = !!overrideFor(g.account, g.magic);
     g.unresolved = !g.manual && (g.magic === '0' || g.auto === UNKNOWN_EA);
     if (g.manual) { g.stateLabel = '手動設定'; g.stateClass = 'manual'; }
     else if (g.unresolved) { g.stateLabel = '要確認'; g.stateClass = 'needs-review'; }
@@ -3842,21 +3995,22 @@ function renderMapTable() {
   if (summary) summary.textContent = '手動設定 ' + manual + ' 件 ／ 自動判定 ' + automatic
     + ' 件 ／ 要確認 ' + unresolved + ' 件。要確認にはEA名またはマジック番号を取得できなかったものが含まれます。';
 
-  document.getElementById('mapCount').textContent = all.length + ' マジック';
+  document.getElementById('mapCount').textContent = all.length + ' 口座別マジック';
   document.querySelector('#mapTable tbody').innerHTML = list.map(function (g) {
     var ex = Object.keys(g.samples).slice(0, 2).join('  /  ');
-    var cur = state.overrides[g.magic] || '';
+    var cur = overrideFor(g.account, g.magic);
     return '<tr>'
+      + '<td title="' + esc(g.account) + '">' + esc(g.account) + '</td>'
       + '<td>' + esc(g.magic) + '</td>'
       + '<td>' + esc(g.auto) + '</td>'
-      + '<td><input type="text" data-magic="' + esc(g.magic) + '" value="' + esc(cur)
+      + '<td><input type="text" data-account="' + esc(g.account) + '" data-magic="' + esc(g.magic) + '" value="' + esc(cur)
         + '" placeholder="自動判定のまま"></td>'
       + '<td><span class="mapping-state ' + g.stateClass + '">' + g.stateLabel + '</span></td>'
       + '<td class="num">' + g.n + '</td>'
       + '<td class="num ' + cls(g.net) + '">' + fx(g.net) + '</td>'
       + '<td>' + esc(ex) + '</td>'
       + '</tr>';
-  }).join('') || '<tr><td colspan="7">' + (onlyUnresolved ? '要確認のマジックはありません' : 'データなし') + '</td></tr>';
+  }).join('') || '<tr><td colspan="8">' + (onlyUnresolved ? '要確認のマジックはありません' : 'データなし') + '</td></tr>';
 }
 
 /* 手動指定を変えたあとの再計算。パーサは通さず判定だけやり直す */
@@ -3877,10 +4031,9 @@ function refreshIdentity() {
 /* input を作り直すとフォーカスが飛ぶので change（確定時）で拾う */
 document.querySelector('#mapTable tbody').addEventListener('change', function (e) {
   var el = e.target;
-  if (!el || !el.dataset || !el.dataset.magic) return;
+  if (!el || !el.dataset || !el.dataset.magic || el.dataset.account === undefined) return;
   var v = el.value.trim();
-  if (v) state.overrides[el.dataset.magic] = v;
-  else delete state.overrides[el.dataset.magic];
+  setOverride(el.dataset.account, el.dataset.magic, v);
   saveOverrides();
   refreshIdentity();
 });
@@ -3888,14 +4041,14 @@ document.querySelector('#mapTable tbody').addEventListener('change', function (e
 on('mapUnresolvedOnly', 'change', function () { renderMapTable(); });
 
 on('mapExport', 'click', function () {
-  var n = Object.keys(state.overrides).length;
+  var n = overrideCount(state.overrides);
   if (!n) { alert('手動指定がまだありません。'); return; }
   var blob = new Blob([JSON.stringify(state.overrides, null, 2)],
                       { type: 'application/json' });
   var url = URL.createObjectURL(blob);
   var a = document.createElement('a');
   a.href = url;
-  a.download = 'ea_name_map.json';
+  a.download = 'ea_name_map_by_account.json';
   document.body.appendChild(a);
   a.click();
   document.body.removeChild(a);
@@ -3911,12 +4064,14 @@ on('mapImport', 'change', function (e) {
     try {
       var obj = JSON.parse(ev.target.result);
       if (!obj || typeof obj !== 'object' || Array.isArray(obj)) {
-        throw new Error('マジック番号をキーにしたオブジェクトではありません');
+        throw new Error('対応表のJSONオブジェクトではありません');
       }
-      state.overrides = obj;
+      state.overrides = normalizeOverrides(obj);
+      var migrated = migrateLegacyOverrides();
       saveOverrides();
       refreshIdentity();
-      setMapStatus('読み込みました（' + Object.keys(obj).length + ' 件）');
+      setMapStatus('読み込みました（' + overrideCount(state.overrides) + ' 件）'
+        + (migrated ? '。旧形式を現在の口座へ移行しました。' : ''));
     } catch (err) {
       alert('JSONを読み込めませんでした: ' + err.message);
     }
@@ -3926,10 +4081,10 @@ on('mapImport', 'change', function (e) {
 });
 
 on('mapClear', 'click', function () {
-  var n = Object.keys(state.overrides).length;
+  var n = overrideCount(state.overrides);
   if (!n) { setMapStatus('手動指定はありません'); return; }
   if (!confirm('手動指定 ' + n + ' 件をすべて消去します。よろしいですか？')) return;
-  state.overrides = {};
+  state.overrides = emptyOverrides();
   saveOverrides();
   refreshIdentity();
 });
@@ -4023,6 +4178,11 @@ function reportFilterLines() {
     var labels = Array.from(sel).map(function (v) { return dimLabelOf(key, v); });
     lines.push(spec.title + ': ' + labels.join('、'));
   });
+  if (state.compareEa.size >= 2) {
+    lines.push('比較対象: ' + Array.from(state.compareEa).map(function (raw) {
+      return dimLabelOf('ea', raw);
+    }).join('、'));
+  }
   return lines;
 }
 
@@ -4081,6 +4241,123 @@ function reportMetric(label, value, kind) {
   return '<div class="metric"><div>' + esc(label) + '</div><strong class="' + (kind || '') + '">' + esc(value) + '</strong></div>';
 }
 
+/* 比較バスケットは通常のEA名選択だけを置き換え、期間・口座・マジック・シンボルの条件は維持する。 */
+function reportComparisonTrades(trades) {
+  if (state.compareEa.size < 2) return [];
+  var base = state.activeDim === 'ea' ? contextTrades() : trades;
+  return base.filter(function (t) { return state.compareEa.has(dimValueOf(t, 'ea')); });
+}
+
+function comparisonSeries(dg) {
+  var lines = dg.groups.map(function (group, i) {
+    var run = 0;
+    return { label: group.label, color: groupColor(i), values: dg.days.map(function (day) {
+      run += group.byDay[day] || 0;
+      return run;
+    }) };
+  });
+  var total = dg.days.map(function (day) {
+    return dg.groups.reduce(function (sum, group) { return sum + (group.byDay[day] || 0); }, 0);
+  });
+  var run = 0;
+  total = total.map(function (value) { run += value; return run; });
+  return { lines: lines, dd: drawdownSeries([0].concat(total)).slice(1) };
+}
+
+/* レポートは別ウィンドウで自己完結するため、比較グラフをSVGで再現する。 */
+function reportLineSvg(lines, dates, formatter, isDd) {
+  if (!dates.length) return '';
+  var values = [].concat.apply([], lines.map(function (line) { return line.values; })).concat([0]);
+  var min = isDd ? Math.min.apply(null, values) : Math.min.apply(null, values);
+  var max = isDd ? 0 : Math.max.apply(null, values);
+  var span = (max - min) || 1;
+  var w = 920, h = isDd ? 180 : 270, left = 52, right = 16, top = isDd ? 18 : 34, bottom = 30;
+  var x = function (i) { return left + i / Math.max(1, dates.length - 1) * (w - left - right); };
+  var y = function (v) { return top + (max - v) / span * (h - top - bottom); };
+  var grid = [0, 0.5, 1].map(function (p) {
+    var yy = top + p * (h - top - bottom);
+    var value = max - p * span;
+    return '<line x1="' + left + '" y1="' + yy.toFixed(1) + '" x2="' + (w - right) + '" y2="' + yy.toFixed(1) + '" stroke="#e4e9f0"/>'
+      + '<text x="4" y="' + (yy + 4).toFixed(1) + '" fill="#64748b" font-size="10">' + esc(formatter(value)) + '</text>';
+  }).join('');
+  var paths = lines.map(function (line) {
+    var d = line.values.map(function (value, i) {
+      return (i ? 'L' : 'M') + x(i).toFixed(1) + ' ' + y(value).toFixed(1);
+    }).join(' ');
+    return '<path d="' + d + '" fill="none" stroke="' + line.color + '" stroke-width="2"/>';
+  }).join('');
+  var legend = lines.map(function (line, i) {
+    var lx = 56 + (i % 4) * 205, ly = 15 + Math.floor(i / 4) * 13;
+    return '<rect x="' + lx + '" y="' + (ly - 7) + '" width="10" height="2" fill="' + line.color + '"/>'
+      + '<text x="' + (lx + 14) + '" y="' + ly + '" fill="#334155" font-size="10">' + esc(line.label) + '</text>';
+  }).join('');
+  var dateLabels = dates.length > 1 ? '<text x="' + left + '" y="' + (h - 7) + '" fill="#64748b" font-size="10">' + esc(dates[0]) + '</text>'
+    + '<text x="' + (w - right) + '" y="' + (h - 7) + '" text-anchor="end" fill="#64748b" font-size="10">' + esc(dates[dates.length - 1]) + '</text>' : '';
+  return '<svg class="report-chart" viewBox="0 0 ' + w + ' ' + h + '" role="img">' + grid + paths + legend + dateLabels + '</svg>';
+}
+
+function reportSelectedPairs(dg) {
+  var groups = dg.groups.filter(function (g) { return g.days >= CMP_MIN_DAYS; });
+  var pairs = [];
+  for (var i = 0; i < groups.length; i++) {
+    var a = dg.days.map(function (d) { return groups[i].byDay[d] || 0; });
+    for (var j = i + 1; j < groups.length; j++) {
+      var b = dg.days.map(function (d) { return groups[j].byDay[d] || 0; });
+      var r = pearson(a, b);
+      if (r !== null) pairs.push({ a: groups[i].label, b: groups[j].label, r: r });
+    }
+  }
+  return pairs.sort(function (a, b) { return b.r - a.r; }).slice(0, 5);
+}
+
+function reportSelectedWorstDays(dg) {
+  return dg.days.map(function (day) {
+    var total = 0, losers = 0;
+    dg.groups.forEach(function (group) {
+      var value = group.byDay[day] || 0;
+      total += value;
+      if (value < 0) losers++;
+    });
+    return { day: day, total: total, losers: losers };
+  }).filter(function (row) { return row.total < 0; }).sort(function (a, b) {
+    return a.total - b.total;
+  }).slice(0, 10);
+}
+
+function reportComparisonSection(trades, unit) {
+  if (state.compareEa.size < 2) return '';
+  var isPips = unit === 'pips';
+  var fmt = isPips ? fpips : fx;
+  var suffix = isPips ? ' pips' : '';
+  var compared = reportComparisonTrades(trades);
+  var dg = dailyByGroup(compared, 'ea', unit);
+  if (dg.groups.length < 2) {
+    return '<section><h2>選択EAの比較結果</h2><p class="note">比較対象のうち、現在の期間・口座・絞り込み条件に確定取引があるEAが2件未満のため、比較結果を作成できませんでした。</p></section>';
+  }
+  var series = comparisonSeries(dg);
+  var cards = dg.groups.map(function (group, i) {
+    var moneyList = compared.filter(function (t) { return t.closed && dimValueOf(t, 'ea') === group.raw; });
+    var list = isPips ? moneyList.filter(function (t) { return typeof t.pips === 'number'; }) : moneyList;
+    var s = stats(list, unit), money = stats(moneyList, 'profit');
+    return '<article class="report-compare-card" style="border-top-color:' + groupColor(i) + '"><b>' + esc(group.label) + '</b><span>' + esc(eaStatusLabel(group.label)) + '</span>'
+      + '<div>純損益 <strong class="' + cls(money.net) + '">' + fx(money.net) + '</strong></div>'
+      + '<div>PF <strong>' + pfStr(s.pf) + '</strong></div><div>最大DD <strong>' + fmt(s.maxDD) + suffix + '</strong></div>'
+      + '<div>取引数 <strong>' + s.n + '</strong> ／ 勝率 <strong>' + s.winRate.toFixed(1) + '%</strong></div></article>';
+  }).join('');
+  var pairs = reportSelectedPairs(dg).map(function (pair) {
+    return '<tr><td>' + esc(pair.a) + '</td><td>' + esc(pair.b) + '</td><td class="num">' + pair.r.toFixed(2) + '</td></tr>';
+  }).join('') || '<tr><td colspan="3">相関を計算できる組み合わせがありません（各EAの取引日が20日以上必要です）</td></tr>';
+  var worst = reportSelectedWorstDays(dg).map(function (row) {
+    return '<tr><td>' + esc(row.day) + '</td><td class="num negative">' + fmt(row.total) + suffix + '</td><td class="num">' + row.losers + ' / ' + dg.groups.length + ' EA</td></tr>';
+  }).join('') || '<tr><td colspan="3">損失の出た日はありません</td></tr>';
+  return '<section><h2>選択EAの比較結果</h2><p class="note">EA分析で選んだ ' + dg.groups.length + ' EA を比較しています。累積推移・合計DDは確定取引のみ、PFなどの評価指標は表示単位（' + (isPips ? 'pips' : '金額') + '）で計算しています。</p>'
+    + '<div class="report-compare-grid">' + cards + '</div>'
+    + '<h3>EA別の累積損益推移</h3>' + reportLineSvg(series.lines, dg.days, fmt, false)
+    + '<h3>合計ドローダウン推移</h3>' + reportLineSvg([{ label: '合計DD', color: '#c5443c', values: series.dd }], dg.days, fmt, true)
+    + '<div class="grid"><div><h3>正相関が高い組み合わせ</h3><table><thead><tr><th>EA 1</th><th>EA 2</th><th class="num">相関</th></tr></thead><tbody>' + pairs + '</tbody></table></div>'
+    + '<div><h3>ワースト損失日</h3><table><thead><tr><th>日付</th><th class="num">合計</th><th class="num">同時損失</th></tr></thead><tbody>' + worst + '</tbody></table></div></div></section>';
+}
+
 function reportHtml(trades, unit) {
   var isPips = unit === 'pips';
   var fmt = isPips ? fpips : fx;
@@ -4093,6 +4370,7 @@ function reportHtml(trades, unit) {
   var ddRate = summary && summary.peak > 0 ? summary.maxDD / summary.peak * 100 : null;
   var recovery = summary && summary.maxDD > 0 ? summary.net / summary.maxDD : null;
   var filters = reportFilterLines();
+  var comparison = reportComparisonSection(trades, unit);
 
   var metrics = summary ? [
     reportMetric(isPips ? '合計pips' : '純損益', fmt(summary.net) + suffix, cls(summary.net)),
@@ -4140,8 +4418,8 @@ function reportHtml(trades, unit) {
   var title = 'EA Performance Lab 分析レポート';
   var style = '<style>'
     + 'body{font-family:"Segoe UI","Yu Gothic UI",sans-serif;color:#17233a;margin:0;background:#f3f6fa;font-size:13px}'
-    + '.page{max-width:1120px;margin:0 auto;background:#fff;padding:32px 38px 46px}.bar{display:flex;justify-content:space-between;gap:20px;align-items:flex-start;border-bottom:2px solid #274690;padding-bottom:17px}.brand{color:#274690;font-weight:700;font-size:20px}.meta{color:#64748b;font-size:12px;margin-top:4px}.actions button{padding:7px 10px;border:1px solid #ccd6e4;border-radius:4px;background:#f7f9fc;cursor:pointer}.filters{margin:18px 0;padding:11px 13px;background:#f5f8ff;border:1px solid #d7e2f4;border-radius:5px}.filters b{font-size:11px;color:#64748b}.chips{margin-top:6px;line-height:1.8}.chip{display:inline-block;background:#fff;border:1px solid #cbd8ee;border-radius:999px;padding:1px 8px;margin:2px 4px 2px 0;font-size:11px}h2{font-size:15px;margin:25px 0 8px;border-left:4px solid #274690;padding-left:8px}.note{color:#64748b;font-size:11px;line-height:1.6;margin:0 0 8px}.metrics{display:grid;grid-template-columns:repeat(4,1fr);gap:8px}.metric{border:1px solid #d9e1eb;border-top:3px solid #274690;border-radius:4px;padding:8px 9px;color:#64748b;font-size:11px}.metric strong{display:block;font:700 17px Consolas,"Cascadia Mono",monospace;color:#17233a;margin-top:3px}.positive{color:#12805c!important}.negative{color:#c5443c!important}.grid{display:grid;grid-template-columns:1fr 1fr;gap:16px}table{width:100%;border-collapse:collapse;table-layout:fixed}th,td{border-bottom:1px solid #d9e1eb;padding:6px 7px;text-align:left;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}th{font-size:11px;color:#64748b;background:#f7f9fc}.num{text-align:right;font-family:Consolas,"Cascadia Mono",monospace}.empty{color:#64748b}.foot{margin-top:24px;padding-top:12px;border-top:1px solid #d9e1eb;color:#64748b;font-size:10.5px;line-height:1.6}'
-    + '@media(max-width:700px){.page{padding:20px}.metrics{grid-template-columns:repeat(2,1fr)}.grid{grid-template-columns:1fr}.bar{display:block}.actions{margin-top:10px}}@media print{body{background:#fff}.page{max-width:none;padding:0}.actions{display:none}h2{break-after:avoid}table{break-inside:avoid}.grid{break-inside:avoid}}'
+    + '.page{max-width:1120px;margin:0 auto;background:#fff;padding:32px 38px 46px}.bar{display:flex;justify-content:space-between;gap:20px;align-items:flex-start;border-bottom:2px solid #274690;padding-bottom:17px}.brand{color:#274690;font-weight:700;font-size:20px}.meta{color:#64748b;font-size:12px;margin-top:4px}.actions button{padding:7px 10px;border:1px solid #ccd6e4;border-radius:4px;background:#f7f9fc;cursor:pointer}.filters{margin:18px 0;padding:11px 13px;background:#f5f8ff;border:1px solid #d7e2f4;border-radius:5px}.filters b{font-size:11px;color:#64748b}.chips{margin-top:6px;line-height:1.8}.chip{display:inline-block;background:#fff;border:1px solid #cbd8ee;border-radius:999px;padding:1px 8px;margin:2px 4px 2px 0;font-size:11px}h2{font-size:15px;margin:25px 0 8px;border-left:4px solid #274690;padding-left:8px}.note{color:#64748b;font-size:11px;line-height:1.6;margin:0 0 8px}.metrics{display:grid;grid-template-columns:repeat(4,1fr);gap:8px}.metric{border:1px solid #d9e1eb;border-top:3px solid #274690;border-radius:4px;padding:8px 9px;color:#64748b;font-size:11px}.metric strong{display:block;font:700 17px Consolas,"Cascadia Mono",monospace;color:#17233a;margin-top:3px}.positive{color:#12805c!important}.negative{color:#c5443c!important}.grid{display:grid;grid-template-columns:1fr 1fr;gap:16px}.report-compare-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;margin:8px 0 14px}.report-compare-card{border:1px solid #d9e1eb;border-top:3px solid #274690;border-radius:4px;padding:8px;font-size:11px}.report-compare-card>b{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:12px}.report-compare-card>span{display:inline-block;color:#64748b;margin:3px 0 6px}.report-compare-card div{color:#64748b;line-height:1.55}.report-compare-card strong{font-family:Consolas,"Cascadia Mono",monospace;color:#17233a}.report-chart{display:block;width:100%;height:auto;border:1px solid #d9e1eb;border-radius:4px;background:#fff;margin:7px 0 14px}table{width:100%;border-collapse:collapse;table-layout:fixed}th,td{border-bottom:1px solid #d9e1eb;padding:6px 7px;text-align:left;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}th{font-size:11px;color:#64748b;background:#f7f9fc}.num{text-align:right;font-family:Consolas,"Cascadia Mono",monospace}.empty{color:#64748b}.foot{margin-top:24px;padding-top:12px;border-top:1px solid #d9e1eb;color:#64748b;font-size:10.5px;line-height:1.6}'
+    + '@media(max-width:700px){.page{padding:20px}.metrics{grid-template-columns:repeat(2,1fr)}.grid,.report-compare-grid{grid-template-columns:1fr}.bar{display:block}.actions{margin-top:10px}}@media print{body{background:#fff}.page{max-width:none;padding:0}.actions{display:none}h2{break-after:avoid}table{break-inside:avoid}.grid{break-inside:avoid}}'
     + '</style>';
   return '<!doctype html><html lang="ja"><head><meta charset="utf-8"><title>' + title + '</title>' + style + '</head><body><main class="page">'
     + '<header class="bar"><div><div class="brand">' + title + '</div><div class="meta">出力日時: ' + esc(new Date().toLocaleString('ja-JP')) + '</div></div>'
@@ -4150,6 +4428,7 @@ function reportHtml(trades, unit) {
     + '<section><h2>運用サマリー</h2><div class="metrics">' + metrics + '</div></section>'
     + '<section><h2>口座スナップショット</h2><p class="note">推定残高は、読み込み範囲の入出金と確定取引の実質損益を口座ごとに集計しています。</p><table><thead><tr><th>口座</th><th class="num">期間損益</th><th class="num">推定残高</th><th class="num">入出金</th><th class="num">最大DD</th></tr></thead><tbody>' + accounts + '</tbody></table></section>'
     + '<section><h2>EA評価ボード</h2><p class="note">純損益は金額、その他の評価指標は表示単位（' + (isPips ? 'pips' : '金額') + '）で計算しています。</p><table><thead><tr><th>EA名</th><th>運用判断</th><th class="num">取引数</th><th class="num">純損益</th><th class="num">勝率</th><th class="num">PF</th><th class="num">最大DD</th></tr></thead><tbody>' + eas + '</tbody></table></section>'
+    + comparison
     + '<section><h2>ポートフォリオ（履歴上の取引集中）</h2><p class="note">現在の保有量・証拠金リスクではなく、選択期間の確定取引を集計しています。</p><div class="grid"><div><h3>通貨ペア別</h3><table><thead><tr><th>通貨ペア</th><th class="num">取引数</th><th class="num">構成比</th><th class="num">' + (isPips ? '合計pips' : '損益') + '</th></tr></thead><tbody>' + symbols + '</tbody></table></div><div><h3>BUY / SELL</h3><table><thead><tr><th>方向</th><th class="num">取引数</th><th class="num">構成比</th><th class="num">' + (isPips ? '合計pips' : '損益') + '</th></tr></thead><tbody>' + directions + '</tbody></table></div></div></section>'
     + '<section><h2>EAの連動性</h2><p class="note">日次損益の正の相関が高い組み合わせ上位5件です。各EAの取引日が20日以上必要です。' + (correlation.truncated ? ' 損益上位30EAを対象にしています。' : '') + '</p><table><thead><tr><th>EA 1</th><th>EA 2</th><th class="num">相関</th></tr></thead><tbody>' + pairs + '</tbody></table></section>'
     + '<footer class="foot">このレポートは読み込み済みの取引履歴からローカルで生成されています。未決済ポジション、現在の証拠金、リアルタイム情報は含みません。</footer>'
@@ -4399,7 +4678,7 @@ var SAMPLE_MT5 = [
 window.selfCheck = function () {
   /* 手動指定が入っていると期待値と食い違うので、判定の間だけ外す */
   var savedOv = state.overrides;
-  state.overrides = {};
+  state.overrides = emptyOverrides();
   try {
     return runSelfCheck();
   } finally {
@@ -4498,7 +4777,7 @@ state.sourceAliases = loadSourceAliases();
   } catch (e) {
     ok = false;
   }
-  var n = Object.keys(state.overrides).length;
+  var n = overrideCount(state.overrides);
   if (!ok) {
     setMapStatus('※このブラウザ／開き方では自動保存が使えません。'
       + '編集後に「JSONで書き出し」、次回は「JSONを読み込み」で復元してください。');
