@@ -125,12 +125,27 @@
 
   /* 比較タブ */
   .cmp-h{margin:18px 0 4px;font-size:13px}
-  #corrTable td,#worstTable td{text-align:right}
-  #corrTable td.rowh,#worstTable td.rowh{text-align:left;font-weight:600}
-  .corr-hi{background:#fdecea;color:var(--neg);font-weight:600}
   .corr-mid{background:#fff6e0}
-  .corr-neg{background:#eaf6ee;color:var(--pos)}
-  .corr-na,.muted{color:#b3bac4}
+  .muted{color:#b3bac4}
+  .analysis-guide{margin:12px 0;padding:11px 13px;border:1px solid #cbd8ee;border-left:4px solid var(--accent);border-radius:5px;background:#f5f8ff}
+  .analysis-guide strong{display:block;margin-bottom:4px}
+  .analysis-guide ol{margin:4px 0 0 20px;padding:0;line-height:1.7;color:var(--sub);font-size:12px}
+  .pair-details{margin-top:18px;padding-top:14px;border-top:1px solid var(--line)}
+  .pair-details summary{cursor:pointer;color:var(--accent);font-weight:600;font-size:13px}
+  .pair-details .tbl{margin-top:9px}
+  .pair-decision-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:10px;margin-top:9px}
+  .pair-decision-card{border:1px solid var(--line);border-top:3px solid var(--accent);border-radius:5px;padding:12px;background:#fff}
+  .pair-decision-card h4{margin:0;font-size:13px}
+  .pair-decision-card p{margin:7px 0;color:var(--sub);font-size:12px;line-height:1.55}
+  .pair-decision-card ul{margin:8px 0;padding:0;list-style:none}
+  .pair-decision-card li{display:flex;justify-content:space-between;gap:8px;padding:5px 0;border-top:1px solid #edf1f6;font-size:12px}
+  .pair-level{display:inline-block;padding:1px 6px;border-radius:999px;font-size:11px;font-weight:700}
+  .pair-level.low{background:#eaf6ee;color:var(--pos)}
+  .pair-level.mid{background:#fff6e0;color:#8a6000}
+  .pair-level.high{background:#fdecea;color:var(--neg)}
+  .pair-level.na{background:#f1f4f8;color:var(--sub)}
+  .pair-evidence{margin-top:9px;color:var(--accent);font-size:12px;font-weight:600;cursor:pointer}
+  .pair-evidence-body{margin-top:7px;padding:9px;background:#f7f9fc;border-radius:4px;color:var(--sub);font-size:11px;line-height:1.65}
   .compare-chart-container{position:relative;height:300px;margin-top:8px}
   .compare-dd-container{position:relative;height:130px;margin-top:7px}
   .compare-summary{margin-top:14px}
@@ -143,10 +158,10 @@
   .compare-summary-metric{min-width:0;color:var(--sub);font-size:10px}
   .compare-summary-metric b{display:block;margin-top:2px;color:var(--ink);font:700 12px Consolas,"Cascadia Mono",monospace;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
   .portfolio-insights{margin-top:20px;padding-top:16px;border-top:1px solid var(--line)}
-  .portfolio-summary{margin-bottom:12px}
   .portfolio-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px}
   .portfolio-panel{border:1px solid var(--line);border-radius:5px;padding:12px;background:#fbfcfe}
-  .portfolio-panel h4{margin:0 0 4px;font-size:13px}
+  .portfolio-panel summary,.account-snapshot summary{cursor:pointer;font-weight:700;font-size:13px;color:var(--ink)}
+  .portfolio-panel[open] summary,.account-snapshot[open] summary{margin-bottom:8px}
   .portfolio-panel .tbl{margin-top:8px;background:#fff}
   .direction-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:10px}
   .direction-card{border:1px solid var(--line);background:#fff;border-radius:4px;padding:10px}
@@ -410,7 +425,6 @@
     #groupTable{min-width:900px}
     #mapTable{min-width:820px}
     #sourceManageTable{min-width:760px}
-    #corrTable,#worstTable{min-width:640px}
     #accountTable{min-width:720px}
     #srcTable{min-width:0}
     .scrollnote{display:block}
@@ -444,11 +458,10 @@
         <div class="hint" id="headMeta">完全クライアントサイド動作（読み込んだデータは外部へ送信されません）</div>
       </div>
       <nav class="top-nav" id="topNav" aria-label="主要画面">
-        <button data-tab="home" class="on">現在の状況</button>
+        <button data-tab="home" class="on">運用状況</button>
         <button data-tab="group">EA分析</button>
         <button data-tab="compare">比較</button>
         <button data-tab="trades">取引履歴</button>
-        <button data-tab="portfolio">ポートフォリオ</button>
         <button data-tab="data">データ管理</button>
       </nav>
       <div class="top-actions">
@@ -531,7 +544,7 @@
       <div id="results" hidden>
       <div class="view-head">
         <div>
-          <h2 id="viewTitle">現在の状況</h2>
+          <h2 id="viewTitle">運用状況</h2>
           <div class="hint" id="viewSubtitle">運用全体の損益・残高・ドローダウンの状態を確認します。</div>
         </div>
       </div>
@@ -550,8 +563,25 @@
           </section>
         </section>
         <div class="stats home-desktop" id="stats"></div>
-        <section class="card account-snapshot home-desktop" id="accountSnapshot">
-          <h3>口座スナップショット</h3>
+        <section class="portfolio-insights home-desktop" id="portfolioInsights">
+          <div class="portfolio-grid">
+            <details class="portfolio-panel" open>
+              <summary>通貨ペア別</summary>
+              <div class="hint">保有量ではなく、選択期間の確定取引の構成です。</div>
+              <div class="scrollnote">表は横にスクロールできます</div>
+              <div class="tbl"><table id="symbolConcentrationTable">
+                <thead><tr><th>通貨ペア</th><th class="num">取引数</th><th class="num">構成比</th><th class="num">損益</th></tr></thead><tbody></tbody>
+              </table></div>
+            </details>
+            <details class="portfolio-panel" open>
+              <summary>BUY / SELL</summary>
+              <div class="hint">選択期間の確定取引における方向別の構成です。</div>
+              <div class="direction-grid" id="directionBias"></div>
+            </details>
+          </div>
+        </section>
+        <details class="card account-snapshot home-desktop" id="accountSnapshot" open>
+          <summary>口座スナップショット</summary>
           <div class="hint">口座ごとの損益・推定残高を、他口座と混ぜずに確認します。</div>
           <div class="scrollnote">表は横にスクロールできます</div>
           <div class="tbl">
@@ -563,7 +593,7 @@
             </table>
           </div>
           <div class="hint balance-note" id="accountBalanceNote"></div>
-        </section>
+        </details>
         <div class="card home-desktop">
           <!-- 入出金を読み込んでいるときだけ「口座残高」を選べる -->
           <div class="seg chartseg" id="chartMode" hidden>
@@ -600,7 +630,7 @@
           <button data-status="unset" aria-pressed="false">未設定</button>
         </div>
         <div class="compare-picker" id="comparePicker">
-          <span class="filter-label">比較対象</span><span id="compareEaCount" class="tag">0 / 8 EA</span>
+          <span class="filter-label">比較対象</span><span id="compareEaCount" class="tag">0 / 3 EA</span>
           <button id="compareSelected" class="primary-action" disabled>選択したEAを比較</button>
           <button id="compareSelectionClear" disabled>選択を解除</button>
           <span class="compare-summary" id="compareEaSummary">EA分析の「比較」にチェックすると、通常の集計を変えずに比較できます。</span>
@@ -660,10 +690,19 @@
 
       <section class="card tabpane" data-pane="compare" hidden>
         <div class="card-head">
-          <h3 id="compareTitle">EA比較</h3><span id="cmpCount" class="tag"></span>
+          <h3 id="compareTitle">EA組み合わせ分析</h3><span id="cmpCount" class="tag"></span>
         </div>
         <div class="hint" id="cmpNote"></div>
         <div id="cmpBody" hidden>
+          <section class="analysis-guide">
+            <strong>確認の順番</strong>
+            <ol>
+              <li>EA分析で、まず候補2件に「比較」をチェックします。必要なら3件目を加えます。</li>
+              <li>各ペアの「補完候補・確認候補・慎重候補」は、3つの重なりを別々に見た明示ルールの案内です。</li>
+              <li>取引数・比較期間の注意がある場合は、結論ではなく参考情報として扱います。</li>
+              <li>候補を決める前に、個別EAのPF・最大DD・累積損益推移も確認します。</li>
+            </ol>
+          </section>
           <section class="compare-summary" id="compareSummarySection">
             <h4 class="cmp-h" style="margin-top:0">比較サマリー</h4>
             <div class="hint">確定取引のみを対象に、選んだEAを同じ期間・単位で比較します。</div>
@@ -671,7 +710,7 @@
           </section>
           <section id="compareTrendSection">
           <h4 class="cmp-h">EA別の累積損益推移</h4>
-          <div class="hint">選んだEAごとの累積損益です。線の色は、下の相関表・ワースト日表と共通です。</div>
+          <div class="hint">選んだEAごとの累積損益です。線の色は、下の組み合わせ分析表と共通です。</div>
           <div class="compare-chart-container"><canvas id="compareEquityChart"></canvas></div>
           <div class="drawdown-chart">
             <div class="chart-caption"><h4>合計ドローダウン推移</h4><span class="hint">比較対象を合計した場合のピークからの下落幅</span></div>
@@ -679,40 +718,12 @@
           </div>
           </section>
 
-          <h4 class="cmp-h">相関（日ごとの損益の連動）</h4>
-          <div class="hint">
-            日ごとの損益がどれだけ一緒に動くかを −1〜1 で示します。
-            1に近いほど同じ日に勝ち負けしやすく、組み合わせても分散の効果が小さくなります。
-            0.5以上を赤、−0.2以下を緑で示しています。
-            取引日が20日未満のものは偶然に左右されやすいため「—」にしています。
-          </div>
-          <div class="scrollnote">表は横にスクロールできます</div>
-          <div class="tbl"><table id="corrTable"></table></div>
-
-          <h4 class="cmp-h">ワースト10日の内訳</h4>
-          <div class="hint" id="worstNote"></div>
-          <div class="scrollnote">表は横にスクロールできます</div>
-          <div class="tbl"><table id="worstTable"></table></div>
+          <section class="pair-details">
+            <h4 class="cmp-h" style="margin-top:0">組み合わせの見立て</h4>
+            <div class="hint">同時保有・同時損失日・DDの同時性を別々に判定します。総合点にはしていません。</div>
+            <div class="pair-decision-grid" id="pairDecisionCards"></div>
+          </section>
         </div>
-        <section class="portfolio-insights" id="portfolioInsights" hidden>
-          <h4 class="cmp-h" style="margin-top:0">履歴上の取引集中</h4>
-          <div class="hint portfolio-summary" id="portfolioSummary"></div>
-          <div class="portfolio-grid">
-            <section class="portfolio-panel">
-              <h4>通貨ペア別の取引集中</h4>
-              <div class="hint">保有量ではなく、選択期間の確定取引の構成です。</div>
-              <div class="scrollnote">表は横にスクロールできます</div>
-              <div class="tbl"><table id="symbolConcentrationTable">
-                <thead><tr><th>通貨ペア</th><th class="num">取引数</th><th class="num">構成比</th><th class="num">損益</th></tr></thead><tbody></tbody>
-              </table></div>
-            </section>
-            <section class="portfolio-panel">
-              <h4>BUY / SELL の偏り</h4>
-              <div class="hint">選択期間の確定取引における方向別の構成です。</div>
-              <div class="direction-grid" id="directionBias"></div>
-            </section>
-          </div>
-        </section>
       </section>
 
       <section class="card tabpane" data-pane="cash" hidden>
@@ -951,7 +962,7 @@ function matchesEaStatusFilter(ea) {
 function renderComparePicker() {
   var count = state.compareEa.size;
   var names = Array.from(state.compareEa).map(function (raw) { return dimLabelOf('ea', raw); });
-  document.getElementById('compareEaCount').textContent = count + ' / ' + CMP_MAX + ' EA';
+  document.getElementById('compareEaCount').textContent = count + ' / ' + COMPARE_EA_MAX + ' EA';
   document.getElementById('compareSelected').disabled = count < 2;
   document.getElementById('compareSelectionClear').disabled = count === 0;
   document.getElementById('compareEaSummary').textContent = !count
@@ -2254,8 +2265,15 @@ function cashCards(sMoney) {
 /* ------------------------------------------------ 重ね表示と比較タブ
    どちらも「左のリストでチェックしたもの」だけを対象にする。
    全部を重ねると線が絡んで読めないので、見たいものは利用者に選んでもらう。 */
-var CMP_MAX = 8;          /* 同時に比べられる上限。これを超えると色の見分けがつかない */
-var CMP_MIN_DAYS = 20;    /* 相関を出す最低の取引日数。少ないと偶然で高い値が出る */
+var CHART_MAX = 8;        /* グラフに重ねて表示できる上限 */
+var COMPARE_EA_MAX = 3;  /* 組み合わせ判断は2〜3 EAに絞る */
+var COMBINATION_MIN_TRADES = 30;
+var COMBINATION_MIN_PERIOD_DAYS = 90;
+var COMBINATION_LEVELS = {
+  exposure: { mid: 0.20, high: 0.50 },
+  loss: { mid: 0.25, high: 0.50 },
+  ddExcess: { mid: 0.02, high: 0.10 }
+};
 var GROUP_COLORS = ['#2563eb', '#d97706', '#7c3aed', '#0891b2',
                     '#db2777', '#16a34a', '#4b5563', '#dc2626'];
 
@@ -2453,20 +2471,231 @@ function drawCompareTrends(dg, formatter) {
   });
 }
 
-/* ピアソンの相関係数。どちらかが一定値なら出せないので null */
-function pearson(a, b) {
-  var n = a.length, i;
-  if (n < 3) return null;
-  var ma = 0, mb = 0;
-  for (i = 0; i < n; i++) { ma += a[i]; mb += b[i]; }
-  ma /= n; mb /= n;
-  var sab = 0, saa = 0, sbb = 0;
-  for (i = 0; i < n; i++) {
-    var x = a[i] - ma, y = b[i] - mb;
-    sab += x * y; saa += x * x; sbb += y * y;
+/* EA組み合わせ分析 ------------------------------------------------------
+   DDは既存の stats() と同じく、決済取引ごとの累積実質損益と高値更新で判定する。
+   日単位へ丸めず、各決済後から次の決済までの状態を時間区間として重ねる。 */
+var ANALYSIS_DAY_MS = 24 * 60 * 60 * 1000;
+
+function analysisTimeMs(value) {
+  var m = String(value || '').match(/^(\d{4})-(\d{1,2})-(\d{1,2})(?:[ T](\d{1,2}):(\d{2})(?::(\d{2}))?)?$/);
+  if (!m) return NaN;
+  return new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]),
+    Number(m[4] || 0), Number(m[5] || 0), Number(m[6] || 0)).getTime();
+}
+
+function mergeAnalysisIntervals(intervals) {
+  var sorted = intervals.filter(function (x) { return x.end > x.start; }).sort(function (a, b) {
+    return a.start - b.start || a.end - b.end;
+  });
+  var merged = [];
+  sorted.forEach(function (item) {
+    var last = merged[merged.length - 1];
+    if (last && item.start <= last.end) last.end = Math.max(last.end, item.end);
+    else merged.push({ start: item.start, end: item.end });
+  });
+  return merged;
+}
+
+function clipAnalysisIntervals(intervals, start, end) {
+  return mergeAnalysisIntervals(intervals.map(function (item) {
+    return { start: Math.max(item.start, start), end: Math.min(item.end, end) };
+  }));
+}
+
+function analysisDuration(intervals) {
+  return intervals.reduce(function (sum, item) { return sum + item.end - item.start; }, 0);
+}
+
+function overlappingAnalysisDuration(a, b) {
+  var i = 0, j = 0, overlap = 0;
+  while (i < a.length && j < b.length) {
+    overlap += Math.max(0, Math.min(a[i].end, b[j].end) - Math.max(a[i].start, b[j].start));
+    if (a[i].end < b[j].end) i++; else j++;
   }
-  if (saa === 0 || sbb === 0) return null;
-  return sab / Math.sqrt(saa * sbb);
+  return overlap;
+}
+
+function ddAnalysisIntervals(events) {
+  var balance = 0, peak = 0, intervals = [];
+  for (var i = 0; i < events.length; i++) {
+    balance += events[i].value;
+    if (balance > peak) peak = balance;
+    /* 決済直後のDD状態は、次の決済時刻まで継続する。 */
+    if (balance < peak && i + 1 < events.length) {
+      intervals.push({ start: events[i].at, end: events[i + 1].at });
+    }
+  }
+  return mergeAnalysisIntervals(intervals);
+}
+
+function percentageText(value) {
+  return value === null || value === undefined ? '—' : (value * 100).toFixed(1) + '%';
+}
+
+function analysisDurationText(ms) {
+  if (!ms) return '0時間';
+  if (ms >= ANALYSIS_DAY_MS * 2) return (ms / ANALYSIS_DAY_MS).toFixed(1) + '日';
+  return (ms / (60 * 60 * 1000)).toFixed(1) + '時間';
+}
+
+function analysisPeriodText(start, end) {
+  return new Date(start).toLocaleDateString('ja-JP') + ' 〜 ' + new Date(end).toLocaleDateString('ja-JP');
+}
+
+function analysisDateKey(ms) {
+  var d = new Date(ms);
+  return d.getFullYear() + '-' + ('0' + (d.getMonth() + 1)).slice(-2) + '-' + ('0' + d.getDate()).slice(-2);
+}
+
+function buildCombinationAnalysis(trades) {
+  var byEa = new Map();
+  trades.forEach(function (trade, index) {
+    if (!trade.closed) return;
+    var closeAt = analysisTimeMs(trade.time);
+    if (!isFinite(closeAt)) return;
+    var raw = dimValueOf(trade, 'ea');
+    if (!byEa.has(raw)) byEa.set(raw, { raw: raw, label: dimLabelOf('ea', raw), events: [], exposure: [], exposureTradeCount: 0 });
+    var group = byEa.get(raw);
+    var value = moneyValue(trade);
+    if (isFinite(value)) group.events.push({ at: closeAt, value: value, day: ymd(trade), index: index });
+    var openAt = analysisTimeMs(trade.openTime);
+    if (isFinite(openAt) && openAt < closeAt) {
+      group.exposure.push({ start: openAt, end: closeAt });
+      group.exposureTradeCount++;
+    }
+  });
+
+  var groups = Array.from(byEa.values()).filter(function (group) { return group.events.length; }).map(function (group) {
+    group.events.sort(function (a, b) { return a.at - b.at || a.index - b.index; });
+    group.start = group.events[0].at;
+    group.end = group.events[group.events.length - 1].at;
+    group.exposure = mergeAnalysisIntervals(group.exposure);
+    group.dd = ddAnalysisIntervals(group.events);
+    group.dailyValues = {};
+    group.events.forEach(function (event) {
+      if (event.day) group.dailyValues[event.day] = (group.dailyValues[event.day] || 0) + event.value;
+    });
+    group.lossDays = {};
+    Object.keys(group.dailyValues).forEach(function (day) {
+      if (group.dailyValues[day] < 0) group.lossDays[day] = true;
+    });
+    group.tradeCount = group.events.length;
+    return group;
+  }).sort(function (a, b) { return a.label.localeCompare(b.label, 'ja'); });
+
+  var pairs = [];
+  for (var i = 0; i < groups.length; i++) {
+    for (var j = i + 1; j < groups.length; j++) {
+      var a = groups[i], b = groups[j];
+      var start = Math.max(a.start, b.start), end = Math.min(a.end, b.end);
+      if (end <= start) {
+        pairs.push({ a: a, b: b, comparable: false, warnings: ['共通する比較期間がありません'] });
+        continue;
+      }
+      var aExposure = clipAnalysisIntervals(a.exposure, start, end);
+      var bExposure = clipAnalysisIntervals(b.exposure, start, end);
+      var aDd = clipAnalysisIntervals(a.dd, start, end);
+      var bDd = clipAnalysisIntervals(b.dd, start, end);
+      var exposureOverlap = overlappingAnalysisDuration(aExposure, bExposure);
+      var ddOverlap = overlappingAnalysisDuration(aDd, bDd);
+      var aLoss = Object.keys(a.lossDays).filter(function (day) { return day >= analysisDateKey(start) && day <= analysisDateKey(end); });
+      var bLossSet = b.lossDays;
+      var concurrentLoss = aLoss.filter(function (day) { return bLossSet[day]; }).length;
+      var bLossCount = Object.keys(b.lossDays).filter(function (day) { return day >= analysisDateKey(start) && day <= analysisDateKey(end); }).length;
+      var periodDays = (end - start) / ANALYSIS_DAY_MS;
+      var warnings = [];
+      if (a.tradeCount < COMBINATION_MIN_TRADES || b.tradeCount < COMBINATION_MIN_TRADES) warnings.push('取引数が' + COMBINATION_MIN_TRADES + '件未満です');
+      if (periodDays < COMBINATION_MIN_PERIOD_DAYS) warnings.push('比較期間が' + COMBINATION_MIN_PERIOD_DAYS + '日未満です');
+      if (!a.exposureTradeCount || !b.exposureTradeCount) warnings.push('Entry/Exit日時が不足し、同時保有率を算出できません');
+      else if (a.exposureTradeCount < a.tradeCount || b.exposureTradeCount < b.tradeCount) warnings.push('Entry/Exit日時が一部不足しており、同時保有率は参考値です');
+      pairs.push({
+        a: a, b: b, comparable: true, start: start, end: end, periodDays: periodDays, warnings: warnings,
+        exposure: { aDuration: analysisDuration(aExposure), bDuration: analysisDuration(bExposure), overlap: exposureOverlap },
+        loss: { aDays: aLoss.length, bDays: bLossCount, concurrent: concurrentLoss },
+        dd: { aDuration: analysisDuration(aDd), bDuration: analysisDuration(bDd), overlap: ddOverlap }
+      });
+    }
+  }
+  return { groups: groups, pairs: pairs };
+}
+
+function analysisRatio(overlap, duration) { return duration ? overlap / duration : null; }
+
+function combinationRatio(pair, row, metric) {
+  if (!pair || !pair.comparable) return null;
+  var isA = pair.a === row;
+  var item = pair[metric];
+  if (metric === 'loss') return analysisRatio(item.concurrent, isA ? item.aDays : item.bDays);
+  return analysisRatio(item.overlap, isA ? item.aDuration : item.bDuration);
+}
+
+/* DD重複率は、相手EAが普段どの程度DDにいるかを差し引いて読む。
+   例: Bが常に90% DDなら、A→Bが90%でも「AのDD時に特にBがDD」とは言えない。 */
+function ddOverlapExcess(pair, row) {
+  if (!pair || !pair.comparable) return null;
+  var isA = pair.a === row;
+  var raw = combinationRatio(pair, row, 'dd');
+  var otherDdDuration = isA ? pair.dd.bDuration : pair.dd.aDuration;
+  return raw === null ? null : raw - otherDdDuration / (pair.end - pair.start);
+}
+
+function signedPointText(value) {
+  if (value === null || value === undefined) return '—';
+  return (value >= 0 ? '+' : '') + (value * 100).toFixed(1) + 'pt';
+}
+
+function combinationLevel(value, thresholds) {
+  if (value === null || value === undefined) return { key: 'na', label: '判定不可' };
+  if (value >= thresholds.high) return { key: 'high', label: '高' };
+  if (value >= thresholds.mid) return { key: 'mid', label: '中' };
+  return { key: 'low', label: '低' };
+}
+
+function pairMetricWorst(pair, metric) {
+  if (metric === 'loss' && (!pair.loss.aDays || !pair.loss.bDays)) return 0;
+  if (metric === 'dd' && (!pair.dd.aDuration || !pair.dd.bDuration)) return 0;
+  var a = combinationRatio(pair, pair.a, metric);
+  var b = combinationRatio(pair, pair.b, metric);
+  return a === null || b === null ? null : Math.max(a, b);
+}
+
+function pairMetricRow(label, level, text) {
+  return '<li><span>' + esc(label) + '：<b class="pair-level ' + level.key + '">' + level.label + '</b></span><span>' + esc(text) + '</span></li>';
+}
+
+function renderPairDecisionCards(analysis) {
+  var html = analysis.pairs.map(function (pair) {
+    if (!pair.comparable) {
+      return '<article class="pair-decision-card"><h4>' + esc(pair.a.label) + ' × ' + esc(pair.b.label) + '</h4><p class="negative">' + esc(pair.warnings.join('、')) + '</p></article>';
+    }
+    var exposureValue = pairMetricWorst(pair, 'exposure');
+    var lossValue = pairMetricWorst(pair, 'loss');
+    var ddA = ddOverlapExcess(pair, pair.a), ddB = ddOverlapExcess(pair, pair.b);
+    var ddValue = !pair.dd.aDuration || !pair.dd.bDuration ? 0 : Math.max(ddA, ddB);
+    var exposureLevel = combinationLevel(exposureValue, COMBINATION_LEVELS.exposure);
+    var lossLevel = combinationLevel(lossValue, COMBINATION_LEVELS.loss);
+    var ddLevel = combinationLevel(ddValue, COMBINATION_LEVELS.ddExcess);
+    var high = [['同時保有', exposureLevel], ['同時損失日', lossLevel], ['DDの同時性', ddLevel]].filter(function (item) { return item[1].key === 'high'; }).map(function (item) { return item[0]; });
+    var medium = [['同時保有', exposureLevel], ['同時損失日', lossLevel], ['DDの同時性', ddLevel]].filter(function (item) { return item[1].key === 'mid'; }).map(function (item) { return item[0]; });
+    var verdict = high.length ? '慎重候補：' + high.join('・') + 'の重なりが大きめです。'
+      : medium.length ? '確認候補：' + medium.join('・') + 'を個別成績と合わせて確認してください。'
+      : '補完候補：この履歴では3指標に大きな重なりは見られません。';
+    var exposureText = exposureValue === null ? 'Entry/Exit不足' : '大きい方 ' + percentageText(exposureValue);
+    var lossText = lossValue === null ? '損失日なし' : '大きい方 ' + percentageText(lossValue);
+    var ddText = ddValue === 0 && (!pair.dd.aDuration || !pair.dd.bDuration) ? '同時DDなし' : ddValue === null ? 'DD判定不可' : '通常より ' + signedPointText(ddValue);
+    var evidence = '比較期間：' + analysisPeriodText(pair.start, pair.end) + '<br>取引数：' + pair.a.tradeCount + ' / ' + pair.b.tradeCount
+      + '<br>同時保有 A→B / B→A：' + percentageText(combinationRatio(pair, pair.a, 'exposure')) + ' / ' + percentageText(combinationRatio(pair, pair.b, 'exposure'))
+      + '<br>同時損失日 A→B / B→A：' + percentageText(combinationRatio(pair, pair.a, 'loss')) + ' / ' + percentageText(combinationRatio(pair, pair.b, 'loss'))
+      + '<br>DD重複 A→B / B→A：' + percentageText(combinationRatio(pair, pair.a, 'dd')) + ' / ' + percentageText(combinationRatio(pair, pair.b, 'dd'))
+      + '<br>DDの同時性 A→B / B→A：通常より ' + signedPointText(ddA) + ' / ' + signedPointText(ddB)
+      + (pair.warnings.length ? '<br>注意：' + esc(pair.warnings.join('、')) : '');
+    return '<article class="pair-decision-card"><h4>' + esc(pair.a.label) + ' × ' + esc(pair.b.label) + '</h4><p>' + esc(verdict) + '</p><ul>'
+      + pairMetricRow('同時保有', exposureLevel, exposureText)
+      + pairMetricRow('同時損失日', lossLevel, lossText)
+      + pairMetricRow('DDの同時性', ddLevel, ddText)
+      + '</ul><details class="pair-evidence"><summary>根拠の数値を確認</summary><div class="pair-evidence-body">' + evidence + '</div></details></article>';
+  }).join('');
+  document.getElementById('pairDecisionCards').innerHTML = html || '<p class="muted">比較できるEAペアがありません。</p>';
 }
 
 function compareMetric(label, value, klass) {
@@ -2506,10 +2735,15 @@ function renderCompareSummary(dg, trades, unit) {
   }).join('');
 }
 
-/* 比較タブ。チェックしたものが2〜8件のときだけ表を出す */
+/* 比較タブ。候補を2〜3 EAに絞り、ペアごとの判断材料を出す。 */
 function renderCompare(trades, dim, unit) {
   var note = document.getElementById('cmpNote');
   var body = document.getElementById('cmpBody');
+  /* EA組み合わせ分析は比較タブだけに表示する。 */
+  if (state.tab !== 'compare') {
+    body.hidden = true;
+    return;
+  }
   var trendSection = document.getElementById('compareTrendSection');
   if (trendSection) trendSection.hidden = state.tab !== 'compare';
   var summarySection = document.getElementById('compareSummarySection');
@@ -2522,7 +2756,13 @@ function renderCompare(trades, dim, unit) {
   var n = dg.groups.length;
   document.getElementById('cmpCount').textContent = n + (usingBasket ? ' / ' + state.compareEa.size : '') + ' EA';
 
-  if (!dim || n < 2) {
+  if (dim !== 'ea') {
+    body.hidden = true;
+    if (state.tab === 'compare') clearCompareCharts();
+    note.textContent = 'EA組み合わせ分析は、EA分析の表で2件以上のEAに「比較」をチェックしてから開いてください。';
+    return;
+  }
+  if (n < 2) {
     body.hidden = true;
     if (state.tab === 'compare') clearCompareCharts();
     note.textContent = usingBasket
@@ -2531,11 +2771,11 @@ function renderCompare(trades, dim, unit) {
       + 'で2つ以上にチェックを入れてください。チェックしたものだけがここで比較されます。';
     return;
   }
-  if (n > CMP_MAX) {
+  if (n > COMPARE_EA_MAX) {
     body.hidden = true;
     if (state.tab === 'compare') clearCompareCharts();
     note.textContent = dimName + ' が ' + n + ' 件選ばれています。比較できるのは '
-      + CMP_MAX + ' 件までです。「' + dimName + '」のリストで見比べたいものだけにチェックを絞ってください'
+      + COMPARE_EA_MAX + ' 件までです。「' + dimName + '」のリストで見比べたいものだけにチェックを絞ってください'
       + '（「全選択 / 解除」の「解除」で一度すべて外すと選びやすくなります）。';
     return;
   }
@@ -2543,88 +2783,14 @@ function renderCompare(trades, dim, unit) {
   renderCompareSummary(dg, trades, unit);
   if (state.tab === 'compare') drawCompareTrends(dg, f);
   note.textContent = (usingBasket ? 'EA分析から選んだEA ' : dimName + ' ') + n + ' 件を比較しています'
-    + '（取引のあった ' + dg.days.length + ' 日・' + (isPips ? 'pips' : '金額')
-    + '・確定した取引のみ）。色はグラフの「' + dimName + '別」と揃えています。';
+    + '（取引のあった ' + dg.days.length + ' 日・累積グラフは' + (isPips ? 'pips' : '金額')
+    + '・確定した取引のみ）。組み合わせ分析の損失日・DDは実質損益、同時保有はEntry/Exit日時で計算します。';
 
-  var vec = dg.groups.map(function (g) {
-    return dg.days.map(function (d) { return g.byDay[d] || 0; });
-  });
-  var nameCell = function (g, i) {
-    return '<td class="rowh" title="' + esc(g.label) + '">'
-      + '<span class="dot" style="background:' + groupColor(i) + '"></span>'
-      + esc(g.label) + '</td>';
-  };
-
-  /* ---- 相関の表 ---- */
-  var ch = '<thead><tr><th></th>' + dg.groups.map(function (g, i) {
-    return '<th class="num" title="' + esc(g.label) + '">'
-      + '<span class="dot" style="background:' + groupColor(i) + '"></span>'
-      + esc(g.label) + '</th>';
-  }).join('') + '</tr></thead><tbody>';
-  dg.groups.forEach(function (g, i) {
-    ch += '<tr>' + nameCell(g, i);
-    dg.groups.forEach(function (h, j) {
-      if (i === j) { ch += '<td class="corr-na">\u2014</td>'; return; }
-      if (g.days < CMP_MIN_DAYS || h.days < CMP_MIN_DAYS) {
-        ch += '<td class="corr-na" title="取引日が' + CMP_MIN_DAYS
-          + '日未満のため出していません">\u2014</td>';
-        return;
-      }
-      var r = pearson(vec[i], vec[j]);
-      if (r === null) { ch += '<td class="corr-na">\u2014</td>'; return; }
-      var c = r >= 0.5 ? 'corr-hi' : r >= 0.2 ? 'corr-mid' : r <= -0.2 ? 'corr-neg' : '';
-      ch += '<td class="' + c + '">' + r.toFixed(2) + '</td>';
-    });
-    ch += '</tr>';
-  });
-  document.getElementById('corrTable').innerHTML = ch + '</tbody>';
-
-  /* ---- ワースト10日 ---- */
-  var totals = dg.days.map(function (d, k) {
-    var sum = 0, losers = 0;
-    for (var i = 0; i < vec.length; i++) {
-      sum += vec[i][k];
-      if (vec[i][k] < 0) losers++;
-    }
-    return { d: d, k: k, sum: sum, losers: losers };
-  });
-  var worst = totals.filter(function (x) { return x.sum < 0; })
-                    .sort(function (a, b) { return a.sum - b.sum; })
-                    .slice(0, 10);
-  var together = worst.filter(function (x) { return x.losers >= 2; }).length;
-
-  document.getElementById('worstNote').textContent =
-    '選んだものを合計して損失が大きかった日の上位10日です。'
-    + '同じ日に複数が負けていれば、一緒に崩れやすい組み合わせです。'
-    + (worst.length
-       ? '　この ' + worst.length + ' 日のうち、2つ以上が同時にマイナスだった日: '
-         + together + ' 日'
-       : '');
-
-  var wh = '<thead><tr><th>日付</th><th class="num">合計</th>'
-    + dg.groups.map(function (g, i) {
-        return '<th class="num" title="' + esc(g.label) + '">'
-          + '<span class="dot" style="background:' + groupColor(i) + '"></span>'
-          + esc(g.label) + '</th>';
-      }).join('') + '</tr></thead><tbody>';
-  if (!worst.length) {
-    wh += '<tr><td colspan="' + (n + 2) + '" class="rowh">損失の出た日はありません</td></tr>';
-  }
-  worst.forEach(function (x) {
-    wh += '<tr><td class="rowh">' + esc(x.d) + '</td>'
-      + '<td class="negative">' + f(x.sum) + '</td>';
-    dg.groups.forEach(function (g) {
-      /* 取引の無かった日と「損益0」を区別する */
-      if (!(x.d in g.byDay)) { wh += '<td class="muted">\u2014</td>'; return; }
-      var v = g.byDay[x.d];
-      wh += '<td class="' + cls(v) + '">' + f(v) + '</td>';
-    });
-    wh += '</tr>';
-  });
-  document.getElementById('worstTable').innerHTML = wh + '</tbody>';
+  var analysis = buildCombinationAnalysis(trades);
+  renderPairDecisionCards(analysis);
 }
 
-/* 履歴上の通貨ペア集中と売買方向をまとめる。
+/* 履歴上の通貨ペア別の内訳と売買方向をまとめる。
    ここで扱うのは確定取引だけで、現在の保有量・証拠金・未決済リスクは示さない。 */
 function portfolioHistoryData(trades, unit) {
   var isPips = unit === 'pips';
@@ -2658,20 +2824,14 @@ function portfolioHistoryData(trades, unit) {
 function renderPortfolioInsights(trades, unit) {
   var panel = document.getElementById('portfolioInsights');
   if (!panel) return;
-  panel.hidden = state.tab !== 'portfolio';
-  if (state.tab !== 'portfolio') return;
+  panel.hidden = state.tab !== 'home';
+  if (state.tab !== 'home') return;
 
   var isPips = unit === 'pips';
   var fmt = isPips ? fpips : fx;
   var data = portfolioHistoryData(trades, unit);
   var rows = data.rows;
   var total = data.total;
-  var top = rows[0];
-  document.getElementById('portfolioSummary').textContent = !total
-    ? '選択条件に一致する確定取引がありません。'
-    : '確定取引 ' + total + ' 件。最多は ' + top.label + '（' + top.n + ' 件・'
-      + (top.n / total * 100).toFixed(1) + '%）です。これは履歴上の取引集中であり、'
-      + '現在の保有量・証拠金リスクは表しません。';
 
   var symbolHead = document.querySelector('#symbolConcentrationTable th:last-child');
   if (symbolHead) symbolHead.textContent = isPips ? '合計pips' : '損益';
@@ -3076,11 +3236,10 @@ document.querySelector('.side').addEventListener('toggle', function (e) {
    主目的ごとに上部ナビゲーションで切り替える。データ追加と絞り込みは
    分析面積を奪わない右パネルに置き、適用中の条件だけを本文に常時表示する。 */
 var VIEW_META = {
-  home:      { title: '現在の状況', subtitle: '運用全体の損益・残高・ドローダウンの状態を確認します。' },
+  home:      { title: '運用状況', subtitle: '運用全体の損益・残高・ドローダウンの状態を確認します。' },
   group:     { title: 'EA分析', subtitle: 'EAごとの成績を比較し、継続・観察・改善の判断材料を確認します。' },
-  compare:   { title: 'EA比較', subtitle: '選択したEAの連動性と、損失日の重なりを確認します。' },
+  compare:   { title: 'EA組み合わせ分析', subtitle: '選択したEAの保有時間・損失日・DD期間の重なりを確認します。' },
   trades:    { title: '取引履歴', subtitle: '個々の取引を絞り込み、成績の背景を確認します。' },
-  portfolio: { title: 'ポートフォリオ', subtitle: 'EAの組み合わせによる集中リスクと相関を確認します。' },
   data:      { title: 'データ管理', subtitle: '読み込む口座データと、マジック番号・EA名の対応を管理します。' }
 };
 function showTab(name) {
@@ -3090,8 +3249,7 @@ function showTab(name) {
   });
   Array.from(document.querySelectorAll('.tabpane')).forEach(function (p) {
     var pane = p.dataset.pane;
-    p.hidden = name === 'portfolio' ? pane !== 'compare'
-      : name === 'data' ? (pane !== 'map' && pane !== 'diag')
+    p.hidden = name === 'data' ? (pane !== 'map' && pane !== 'diag')
       : name === 'trades' ? (pane !== 'trades' && pane !== 'cash')
       : pane !== name;
   });
@@ -3099,9 +3257,7 @@ function showTab(name) {
   document.getElementById('viewTitle').textContent = meta.title;
   document.getElementById('viewSubtitle').textContent = meta.subtitle;
   var compareTitle = document.getElementById('compareTitle');
-  if (compareTitle) compareTitle.textContent = name === 'portfolio' ? 'ポートフォリオの連動リスク' : 'EA比較';
-  var portfolioInsights = document.getElementById('portfolioInsights');
-  if (portfolioInsights) portfolioInsights.hidden = name !== 'portfolio';
+  if (compareTitle) compareTitle.textContent = 'EA組み合わせ分析';
   var compareTrend = document.getElementById('compareTrendSection');
   if (compareTrend) compareTrend.hidden = name !== 'compare';
   var compareSummary = document.getElementById('compareSummarySection');
@@ -3109,7 +3265,7 @@ function showTab(name) {
   document.querySelector('.main').scrollTop = 0;
   /* EA分析は常にEA名を行単位にする。前画面でマジック等を集計軸にしていても、
      タブを開いた時点で評価ボードと比較チェックをEA単位に描き直す。 */
-  if ((name === 'group' || name === 'compare') && state.sources.length) render();
+  if ((name === 'home' || name === 'group' || name === 'compare') && state.sources.length) render();
 }
 
 on('topNav', 'click', function (e) {
@@ -3550,9 +3706,9 @@ document.querySelector('#groupTable tbody').addEventListener('change', function 
   if (el.dataset.compareEa !== undefined) {
     var raw = el.dataset.compareEa;
     if (el.checked) {
-      if (state.compareEa.size >= CMP_MAX) {
+      if (state.compareEa.size >= COMPARE_EA_MAX) {
         el.checked = false;
-        alert('比較できるEAは ' + CMP_MAX + ' 件までです。');
+        alert('比較できるEAは ' + COMPARE_EA_MAX + ' 件までです。');
         return;
       }
       state.compareEa.add(raw);
@@ -3938,12 +4094,12 @@ function render() {
       drawChart([0], ['']);
       drawDrawdown([0], [''], fmt);
       chartOverlay('表示できる取引がありません');
-    } else if (dg.groups.length > CMP_MAX) {
+    } else if (dg.groups.length > CHART_MAX) {
       /* 全部重ねると読めないので描かない。見たいものを選んでもらう */
       drawChart([0], ['']);
       drawDrawdown([0], [''], fmt);
       chartOverlay(DIM_LABEL[gdim] + ' が ' + dg.groups.length + ' 件選ばれています。'
-        + '重ねて表示できるのは ' + CMP_MAX + ' 件までです。'
+        + '重ねて表示できるのは ' + CHART_MAX + ' 件までです。'
         + '「' + DIM_LABEL[gdim] + '」のリストで、見比べたいものだけにチェックを絞ってください。');
     } else {
       drawGroupChart(dg);
@@ -4390,23 +4546,6 @@ function reportEaRows(trades, unit) {
   }).sort(function (a, b) { return b.money.net - a.money.net; });
 }
 
-/* 多数のEAでもレポート生成が重くならないよう、損益上位30EAに限定して相関候補を出す。 */
-function reportCorrelationPairs(trades, unit) {
-  var dg = dailyByGroup(trades, 'ea', unit);
-  var groups = dg.groups.slice(0, 30).filter(function (g) { return g.days >= CMP_MIN_DAYS; });
-  var pairs = [];
-  for (var i = 0; i < groups.length; i++) {
-    var a = dg.days.map(function (d) { return groups[i].byDay[d] || 0; });
-    for (var j = i + 1; j < groups.length; j++) {
-      var b = dg.days.map(function (d) { return groups[j].byDay[d] || 0; });
-      var r = pearson(a, b);
-      if (r !== null) pairs.push({ a: groups[i].label, b: groups[j].label, r: r });
-    }
-  }
-  return { pairs: pairs.sort(function (a, b) { return b.r - a.r; }).slice(0, 5),
-           truncated: dg.groups.length > 30 };
-}
-
 function reportMetric(label, value, kind) {
   return '<div class="metric"><div>' + esc(label) + '</div><strong class="' + (kind || '') + '">' + esc(value) + '</strong></div>';
 }
@@ -4466,32 +4605,23 @@ function reportLineSvg(lines, dates, formatter, isDd) {
   return '<svg class="report-chart" viewBox="0 0 ' + w + ' ' + h + '" role="img">' + grid + paths + legend + dateLabels + '</svg>';
 }
 
-function reportSelectedPairs(dg) {
-  var groups = dg.groups.filter(function (g) { return g.days >= CMP_MIN_DAYS; });
-  var pairs = [];
-  for (var i = 0; i < groups.length; i++) {
-    var a = dg.days.map(function (d) { return groups[i].byDay[d] || 0; });
-    for (var j = i + 1; j < groups.length; j++) {
-      var b = dg.days.map(function (d) { return groups[j].byDay[d] || 0; });
-      var r = pearson(a, b);
-      if (r !== null) pairs.push({ a: groups[i].label, b: groups[j].label, r: r });
-    }
-  }
-  return pairs.sort(function (a, b) { return b.r - a.r; }).slice(0, 5);
-}
-
-function reportSelectedWorstDays(dg) {
-  return dg.days.map(function (day) {
-    var total = 0, losers = 0;
-    dg.groups.forEach(function (group) {
-      var value = group.byDay[day] || 0;
-      total += value;
-      if (value < 0) losers++;
-    });
-    return { day: day, total: total, losers: losers };
-  }).filter(function (row) { return row.total < 0; }).sort(function (a, b) {
-    return a.total - b.total;
-  }).slice(0, 10);
+function reportCombinationTable(analysis) {
+  var rows = analysis.pairs.map(function (pair) {
+    if (!pair.comparable) return '<tr><td>' + esc(pair.a.label) + ' × ' + esc(pair.b.label) + '</td><td colspan="5">' + esc(pair.warnings.join('、')) + '</td></tr>';
+    var exposureA = percentageText(analysisRatio(pair.exposure.overlap, pair.exposure.aDuration));
+    var exposureB = percentageText(analysisRatio(pair.exposure.overlap, pair.exposure.bDuration));
+    var lossA = percentageText(analysisRatio(pair.loss.concurrent, pair.loss.aDays));
+    var lossB = percentageText(analysisRatio(pair.loss.concurrent, pair.loss.bDays));
+    var ddA = percentageText(analysisRatio(pair.dd.overlap, pair.dd.aDuration));
+    var ddB = percentageText(analysisRatio(pair.dd.overlap, pair.dd.bDuration));
+    return '<tr><td>' + esc(pair.a.label) + ' × ' + esc(pair.b.label) + '</td><td>' + esc(analysisPeriodText(pair.start, pair.end)) + '</td>'
+      + '<td class="num">' + analysisDurationText(pair.exposure.overlap) + '<br>' + exposureA + ' / ' + exposureB + '</td>'
+      + '<td class="num">' + pair.loss.concurrent + '日<br>' + lossA + ' / ' + lossB + '</td>'
+      + '<td class="num">' + analysisDurationText(pair.dd.overlap) + '<br>' + ddA + ' / ' + ddB + '</td>'
+      + '<td>' + esc(pair.warnings.length ? pair.warnings.join('、') : '十分') + '</td></tr>';
+  }).join('');
+  return '<table><thead><tr><th>EAペア</th><th>比較期間</th><th class="num">同時保有<br>A→B / B→A</th><th class="num">同時損失日<br>A→B / B→A</th><th class="num">DD重複<br>A→B / B→A</th><th>参考度</th></tr></thead><tbody>'
+    + (rows || '<tr><td colspan="6">比較できるEAペアがありません</td></tr>') + '</tbody></table>';
 }
 
 function reportComparisonSection(trades, unit) {
@@ -4514,18 +4644,12 @@ function reportComparisonSection(trades, unit) {
       + '<div>PF <strong>' + pfStr(s.pf) + '</strong></div><div>最大DD <strong>' + fmt(s.maxDD) + suffix + '</strong></div>'
       + '<div>取引数 <strong>' + s.n + '</strong> ／ 勝率 <strong>' + s.winRate.toFixed(1) + '%</strong></div></article>';
   }).join('');
-  var pairs = reportSelectedPairs(dg).map(function (pair) {
-    return '<tr><td>' + esc(pair.a) + '</td><td>' + esc(pair.b) + '</td><td class="num">' + pair.r.toFixed(2) + '</td></tr>';
-  }).join('') || '<tr><td colspan="3">相関を計算できる組み合わせがありません（各EAの取引日が20日以上必要です）</td></tr>';
-  var worst = reportSelectedWorstDays(dg).map(function (row) {
-    return '<tr><td>' + esc(row.day) + '</td><td class="num negative">' + fmt(row.total) + suffix + '</td><td class="num">' + row.losers + ' / ' + dg.groups.length + ' EA</td></tr>';
-  }).join('') || '<tr><td colspan="3">損失の出た日はありません</td></tr>';
+  var combination = buildCombinationAnalysis(compared);
   return '<section><h2>選択EAの比較結果</h2><p class="note">EA分析で選んだ ' + dg.groups.length + ' EA を比較しています。累積推移・合計DDは確定取引のみ、PFなどの評価指標は表示単位（' + (isPips ? 'pips' : '金額') + '）で計算しています。</p>'
     + '<div class="report-compare-grid">' + cards + '</div>'
     + '<h3>EA別の累積損益推移</h3>' + reportLineSvg(series.lines, dg.days, fmt, false)
     + '<h3>合計ドローダウン推移</h3>' + reportLineSvg([{ label: '合計DD', color: '#c5443c', values: series.dd }], dg.days, fmt, true)
-    + '<div class="grid"><div><h3>正相関が高い組み合わせ</h3><table><thead><tr><th>EA 1</th><th>EA 2</th><th class="num">相関</th></tr></thead><tbody>' + pairs + '</tbody></table></div>'
-    + '<div><h3>ワースト損失日</h3><table><thead><tr><th>日付</th><th class="num">合計</th><th class="num">同時損失</th></tr></thead><tbody>' + worst + '</tbody></table></div></div></section>';
+    + '<h3>EA組み合わせ分析</h3><p class="note">A→B はAを基準にした割合です。DDは決済時刻ごとの累積実質損益で判定します。</p>' + reportCombinationTable(combination) + '</section>';
 }
 
 function reportHtml(trades, unit) {
@@ -4536,7 +4660,6 @@ function reportHtml(trades, unit) {
   var accountRows = reportAccountRows(trades);
   var eaRows = reportEaRows(trades, unit);
   var portfolio = portfolioHistoryData(trades, unit);
-  var correlation = reportCorrelationPairs(trades, unit);
   var ddRate = summary && summary.peak > 0 ? summary.maxDD / summary.peak * 100 : null;
   var recovery = summary && summary.maxDD > 0 ? summary.net / summary.maxDD : null;
   var filters = reportFilterLines();
@@ -4581,10 +4704,6 @@ function reportHtml(trades, unit) {
       + '<td class="num">' + ratio + '%</td><td class="num ' + cls(item.value) + '">' + fmt(item.value) + suffix + '</td></tr>';
   }).join('');
 
-  var pairs = correlation.pairs.map(function (pair) {
-    return '<tr><td>' + esc(pair.a) + '</td><td>' + esc(pair.b) + '</td><td class="num">' + pair.r.toFixed(2) + '</td></tr>';
-  }).join('') || '<tr><td colspan="3">相関を計算できるEAの組み合わせがありません（各EAの取引日が20日以上必要です）</td></tr>';
-
   var title = 'EA Performance Lab 分析レポート';
   var style = '<style>'
     + 'body{font-family:"Segoe UI","Yu Gothic UI",sans-serif;color:#17233a;margin:0;background:#f3f6fa;font-size:13px}'
@@ -4599,8 +4718,7 @@ function reportHtml(trades, unit) {
     + '<section><h2>口座スナップショット</h2><p class="note">推定残高は、読み込み範囲の入出金と確定取引の実質損益を口座ごとに集計しています。</p><table><thead><tr><th>口座</th><th class="num">期間損益</th><th class="num">推定残高</th><th class="num">入出金</th><th class="num">最大DD</th></tr></thead><tbody>' + accounts + '</tbody></table></section>'
     + '<section><h2>EA評価ボード</h2><p class="note">純損益は金額、その他の評価指標は表示単位（' + (isPips ? 'pips' : '金額') + '）で計算しています。</p><table><thead><tr><th>EA名</th><th>運用判断</th><th class="num">取引数</th><th class="num">純損益</th><th class="num">勝率</th><th class="num">PF</th><th class="num">最大DD</th></tr></thead><tbody>' + eas + '</tbody></table></section>'
     + comparison
-    + '<section><h2>ポートフォリオ（履歴上の取引集中）</h2><p class="note">現在の保有量・証拠金リスクではなく、選択期間の確定取引を集計しています。</p><div class="grid"><div><h3>通貨ペア別</h3><table><thead><tr><th>通貨ペア</th><th class="num">取引数</th><th class="num">構成比</th><th class="num">' + (isPips ? '合計pips' : '損益') + '</th></tr></thead><tbody>' + symbols + '</tbody></table></div><div><h3>BUY / SELL</h3><table><thead><tr><th>方向</th><th class="num">取引数</th><th class="num">構成比</th><th class="num">' + (isPips ? '合計pips' : '損益') + '</th></tr></thead><tbody>' + directions + '</tbody></table></div></div></section>'
-    + '<section><h2>EAの連動性</h2><p class="note">日次損益の正の相関が高い組み合わせ上位5件です。各EAの取引日が20日以上必要です。' + (correlation.truncated ? ' 損益上位30EAを対象にしています。' : '') + '</p><table><thead><tr><th>EA 1</th><th>EA 2</th><th class="num">相関</th></tr></thead><tbody>' + pairs + '</tbody></table></section>'
+    + '<section><h2>取引実績</h2><p class="note">現在の保有量・証拠金リスクではなく、選択期間の確定取引を集計しています。</p><div class="grid"><div><h3>通貨ペア別</h3><table><thead><tr><th>通貨ペア</th><th class="num">取引数</th><th class="num">構成比</th><th class="num">' + (isPips ? '合計pips' : '損益') + '</th></tr></thead><tbody>' + symbols + '</tbody></table></div><div><h3>BUY / SELL</h3><table><thead><tr><th>方向</th><th class="num">取引数</th><th class="num">構成比</th><th class="num">' + (isPips ? '合計pips' : '損益') + '</th></tr></thead><tbody>' + directions + '</tbody></table></div></div></section>'
     + '<footer class="foot">このレポートは読み込み済みの取引履歴からローカルで生成されています。未決済ポジション、現在の証拠金、リアルタイム情報は含みません。</footer>'
     + '</main></body></html>';
 }
