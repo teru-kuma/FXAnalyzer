@@ -3808,8 +3808,7 @@ function dashboardMetrics(trades, s, key, fmt, suffix) {
   return metricGroup('収益性', '利益を生み出せているか', 'profit', [
     card(netLabel, fmt(s.net) + suffix, cls(s.net)),
     card('PF', pfStr(s.pf), s.pf >= 1 ? 'positive' : 'negative'),
-    card(avgLabel, fmt(s.avg) + suffix, cls(s.avg)),
-    card('総利益', fmt(s.grossProfit) + suffix, 'positive')
+    card(avgLabel, fmt(s.avg) + suffix, cls(s.avg))
   ]) + metricGroup('リスク', '損失の深さと回復力', 'risk', [
     card('最大DD', fmt(s.maxDD) + suffix, ''),
     card('DD率', ddRate === null ? '—' : ddRate.toFixed(1) + '%',
@@ -3854,7 +3853,7 @@ function renderMobileStatus(summary, eaRows, recentTrades) {
 
   document.getElementById('mobileKpis').innerHTML = summary
     ? [
-      ['読み込み範囲の損益', fx(summary.net), cls(summary.net)],
+      ['現在DD', fx(Math.max(0, summary.peak - summary.equity[summary.equity.length - 1])), ''],
       ['最大DD', fx(summary.maxDD), ''],
       ['取引数', String(summary.n) + ' 件', '']
     ].map(function (item) {
@@ -3906,7 +3905,6 @@ var STAT_HELP = {
   '取引数': '選択中の取引件数',
   '平均損益': '1取引あたりの平均損益',
   '平均pips': '1取引あたりの平均pips',
-  '総利益': '利益になった取引だけを合計した値',
   'DD率': '最大DD ÷ 累積損益の最高値。累積損益が一度もプラスになっていない場合は算出しません',
   '最大連敗': '損失取引が連続した最大回数。損益0の取引は連敗を継続させます',
   '回復係数': '純損益 ÷ 最大DD。大きいほどDDに対して利益を回復できています',
