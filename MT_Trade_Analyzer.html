@@ -459,7 +459,7 @@
       </div>
       <nav class="top-nav" id="topNav" aria-label="主要画面">
         <button data-tab="home" class="on">運用状況</button>
-        <button data-tab="group">EA分析</button>
+        <button data-tab="group">EA・マジック分析</button>
         <button data-tab="compare">比較</button>
         <button data-tab="trades">取引履歴</button>
         <button data-tab="data">データ管理</button>
@@ -616,8 +616,17 @@
       </section>
 
       <section class="card tabpane" data-pane="group" hidden>
-        <h3>EA評価ボード <span id="groupCount" class="tag"></span>
+        <h3 id="groupHeading">マジック別評価ボード <span id="groupCount" class="tag"></span>
           <button id="csvGroups" style="float:right">CSVで書き出し</button></h3>
+        <div class="controls" id="analysisGroupingControls">
+          <label>分析単位
+            <select id="analysisGrouping">
+              <option value="magic">マジック番号別（既定）</option>
+              <option value="ea">EAグループ別（複数マジックをまとめる）</option>
+            </select>
+          </label>
+          <label class="chk"><input type="checkbox" id="splitAccountMagic"> 同じ番号でも口座ごとに分ける</label>
+        </div>
         <div class="hint" id="groupNote"></div>
         <div class="status-filter" id="eaStatusFilter" aria-label="運用判断で絞り込み">
           <span class="filter-label">運用判断</span>
@@ -633,14 +642,14 @@
           <span class="filter-label">比較対象</span><span id="compareEaCount" class="tag">0 / 3 EA</span>
           <button id="compareSelected" class="primary-action" disabled>選択したEAを比較</button>
           <button id="compareSelectionClear" disabled>選択を解除</button>
-          <span class="compare-summary" id="compareEaSummary">EA分析の「比較」にチェックすると、通常の集計を変えずに比較できます。</span>
+          <span class="compare-summary" id="compareEaSummary">評価ボードの「比較」にチェックすると、通常の集計を変えずに比較できます。</span>
         </div>
         <div class="scrollnote">表は横にスクロールできます</div>
         <div class="tbl">
           <table id="groupTable">
             <thead><tr>
-              <th data-k="label">EA名</th><th data-k="status" title="初回クリックでは 停止候補 → 改善 → 観察 → 検証中 → 継続 → 未設定 の順に並びます">運用判断</th><th class="compare-ea-cell">比較</th>
-              <th data-k="magics">マジック</th><th data-k="symbols">シンボル</th>
+              <th data-k="label" id="groupLabelHeader">マジック</th><th data-k="status" title="初回クリックでは 停止候補 → 改善 → 観察 → 検証中 → 継続 → 未設定 の順に並びます">運用判断</th><th class="compare-ea-cell">比較</th>
+              <th data-k="magics" id="groupMagicsHeader">マジック</th><th data-k="symbols">シンボル</th>
               <th class="num" data-k="n">取引数</th>
               <th class="num" data-k="net" title="Profit・手数料・スワップ・feeを反映した損益">純損益</th><th class="num" data-k="pips">合計pips</th>
               <th class="num" data-k="winRate">勝率</th><th class="num" data-k="pf">PF</th>
@@ -762,13 +771,14 @@
         </section>
 
         <section class="data-section">
-        <h4>EA名の対応表 <span id="mapCount" class="tag"></span></h4>
+        <h4>EAグループの対応表 <span id="mapCount" class="tag"></span></h4>
         <div class="hint">
-          マジックごとにEA名を手で指定できます。空欄にすると自動判定に戻ります。
+          マジックごとにEAグループ名を手で指定できます。同じ名前を複数のマジックに設定すると、
+          「EAグループ別」で1つのEAとして集計できます。空欄にすると自動判定に戻ります。
           マジック <code>0</code> は「マジックが取れなかった取引」のまとめ行なので、
           ここに名前を付けると該当する全取引が同じ名前になります。
           入力はこのブラウザに自動保存され、次に同じ口座・マジックを読み込んだときにも適用されます。
-          口座ごとに同じマジック番号を別EAへ対応付けられます。別のPCやブラウザで使う場合、または保存が効かない場合はJSONで書き出してください。
+          同じマジック番号でも口座ごとに別のEAグループ名を指定できます。別のPCやブラウザで使う場合、または保存が効かない場合はJSONで書き出してください。
         </div>
         <div class="controls">
           <label class="chk"><input type="checkbox" id="autoMerge" checked> EA名の表記ゆれを口座・マジック単位で統合</label>
@@ -788,7 +798,7 @@
         <div class="tbl">
           <table id="mapTable">
             <thead><tr>
-              <th>口座</th><th>マジック</th><th>自動判定</th><th>EA名（手動指定）</th><th>状態</th>
+              <th>口座</th><th>マジック</th><th>自動判定</th><th>EAグループ名（任意）</th><th>状態</th>
               <th class="num">取引数</th><th class="num">純損益</th><th>例（生コメント）</th>
             </tr></thead><tbody></tbody>
           </table>
@@ -864,7 +874,7 @@ var RE_BAD   = /�/g;
 var UNKNOWN_EA = '(不明)';   /* 「(不明)」 */
 
 /* Web版・スマホ版は同一HTMLのレスポンシブ表示なので、版番号もここだけで管理する。 */
-var APP_VERSION = 'v1.0';
+var APP_VERSION = 'v1.1';
 function applyAppVersion() {
   document.title = 'EA Performance Lab (' + APP_VERSION + ')';
   var el = document.getElementById('appVersion');
@@ -877,8 +887,8 @@ var state = { trades: [], sources: [], diag: null, chart: null, ddChart: null,
               compareEa: new Set(),
               sel: {}, known: {}, listQuery: {}, listOpen: {},
               cash: [],          /* 入出金。取引とは別に持つ */
-              chartMode: 'pl',   /* pl=累積損益 / grp=EA名別 */
-              activeDim: 'ea',   /* いま絞り込みと集計に使っている軸 */
+              chartMode: 'pl',   /* pl=累積損益 / grp=選択中の軸別 */
+              activeDim: 'magic',/* いま絞り込みと集計に使っている軸 */
               drill: [],         /* 掘り下げて固定した軸 [{dim,value}] */
               page: 0, tab: 'home', lastSig: '' };
 
@@ -919,23 +929,29 @@ function saveEaStatuses() {
   } catch (e) { /* 保存不可でも画面上の変更は維持する */ }
 }
 
-function eaStatusLabel(ea) {
-  var value = state.eaStatuses[ea] || '';
+/* 評価対象のキーは表示名ではなく、分析単位を含む内部キーにする。
+   これにより「同じEA名だが口座別」は別々の運用判断を持てる。 */
+function eaStatusValue(key, legacyLabel) {
+  return state.eaStatuses[key] || state.eaStatuses[legacyLabel] || '';
+}
+
+function eaStatusLabel(key, legacyLabel) {
+  var value = eaStatusValue(key, legacyLabel);
   var item = EA_STATUS_OPTIONS.filter(function (x) { return x.value === value; })[0];
   return item ? item.label : '未設定';
 }
 
 /* EA分析の運用判断列は、名称順ではなく対応の優先順で並べる。 */
 var EA_STATUS_PRIORITY = { stop: 0, improve: 1, observe: 2, testing: 3, continue: 4, '': 5 };
-function eaStatusPriority(ea) {
-  var value = state.eaStatuses[ea] || '';
+function eaStatusPriority(key, legacyLabel) {
+  var value = eaStatusValue(key, legacyLabel);
   return EA_STATUS_PRIORITY[value] === undefined ? 5 : EA_STATUS_PRIORITY[value];
 }
 
-function eaStatusSelect(ea) {
-  var current = state.eaStatuses[ea] || '';
-  return '<select class="status-select" data-ea-status="' + esc(ea) + '"'
-    + ' aria-label="' + esc(ea) + 'の運用判断">'
+function eaStatusSelect(key, label) {
+  var current = eaStatusValue(key, label);
+  return '<select class="status-select" data-ea-status="' + esc(key) + '"'
+    + ' aria-label="' + esc(label) + 'の運用判断">'
     + EA_STATUS_OPTIONS.map(function (item) {
       return '<option value="' + item.value + '"' + (item.value === current ? ' selected' : '') + '>'
         + item.label + '</option>';
@@ -952,22 +968,23 @@ function renderEaStatusFilter() {
   });
 }
 
-function matchesEaStatusFilter(ea) {
+function matchesEaStatusFilter(key, legacyLabel) {
   var filter = state.eaStatusFilter;
   if (!filter) return true;
-  var current = state.eaStatuses[ea] || '';
+  var current = eaStatusValue(key, legacyLabel);
   return filter === 'unset' ? !current : current === filter;
 }
 
 function renderComparePicker() {
   var count = state.compareEa.size;
-  var names = Array.from(state.compareEa).map(function (raw) { return dimLabelOf('ea', raw); });
-  document.getElementById('compareEaCount').textContent = count + ' / ' + COMPARE_EA_MAX + ' EA';
+  var names = Array.from(state.compareEa).map(analysisGroupLabelForKey);
+  var noun = analysisGrouping() === 'magic' ? 'マジック' : 'EA';
+  document.getElementById('compareEaCount').textContent = count + ' / ' + COMPARE_EA_MAX + ' ' + noun;
   document.getElementById('compareSelected').disabled = count < 2;
   document.getElementById('compareSelectionClear').disabled = count === 0;
   document.getElementById('compareEaSummary').textContent = !count
-    ? 'EA分析の「比較」にチェックすると、通常の集計を変えずに比較できます。'
-    : names.join('、') + (count < 2 ? '　（比較には2 EA以上を選択）' : '　（比較の準備完了）');
+    ? '評価ボードの「比較」にチェックすると、通常の集計を変えずに比較できます。'
+    : names.join('、') + (count < 2 ? '　（比較には2件以上を選択）' : '　（比較の準備完了）');
 }
 
 function setMapStatus(msg) {
@@ -1013,6 +1030,12 @@ function overrideCount(overrides) {
   });
   n += Object.keys((overrides && overrides.legacy) || {}).length;
   return n;
+}
+
+/* 口座別のマジック設定・表記ゆれ統合で共通に使う識別子。
+   区切りにNULを使い、通常の口座表示名やマジック番号との衝突を避ける。 */
+function accountMagicKey(account, magic) {
+  return (account || '-') + '\u0000' + (magic || '0');
 }
 
 function overrideFor(account, magic) {
@@ -1099,15 +1122,16 @@ function saveSourceAliases(message) {
 }
 
 /* ------------------------------------------------------ 表示設定の保存 (9)
-   EA名の対応表は保存されるのに表示設定だけ毎回リセットされるのは不統一。
-   絞り込みの選択内容はデータ次第で変わるので保存しない（設定だけ覚える）。 */
+   絞り込みの選択内容はデータ次第で変わるので保存しない。
+   集計軸も、データを読み込むたびに既定のマジック番号別へ戻すため保存しない。 */
 var SET_KEY = 'mt_trade_analyzer_settings_v1';
 var SETTING_IDS = ['unit', 'inclOpen', 'mergePartial',
-                   'mergeSameTime', 'autoMerge'];
+                   'mergeSameTime', 'autoMerge', 'analysisGrouping',
+                   'splitAccountMagic'];
 
 function saveSettings() {
   try {
-    var o = { pageSize: PAGE_SIZE, period: period.id, activeDim: state.activeDim };
+    var o = { pageSize: PAGE_SIZE, period: period.id };
     SETTING_IDS.forEach(function (id) {
       var el = document.getElementById(id);
       o[id] = (el.type === 'checkbox') ? el.checked : el.value;
@@ -1136,7 +1160,6 @@ function loadSettings() {
     var known = PERIODS.some(function (x) { return x.id === o.period; });
     period.id = known ? o.period : 'all';   /* 廃止したm3/m6が保存されている場合 */
   }
-  if (o.activeDim && DIMS.indexOf(o.activeDim) >= 0) state.activeDim = o.activeDim;
 }
 
 function applyOverrides(trades) {
@@ -2108,7 +2131,7 @@ function consolidateEaByMagic(trades, diag) {
   for (var i = 0; i < trades.length; i++) {
     var t = trades[i];
     if (!t.magic || t.magic === '0') continue;
-    var key = (t.source || '-') + '\u0000' + t.magic;
+    var key = accountMagicKey(t.source, t.magic);
     if (!byAccountMagic[key]) byAccountMagic[key] = [];
     byAccountMagic[key].push(t);
   }
@@ -2288,9 +2311,9 @@ function dailyByGroup(trades, dim, unit) {
     if (v === null || v === undefined || !isFinite(v)) return;
     var d = ymd(t);
     if (!d) return;
-    var raw = dim ? dimValueOf(t, dim) : '全体';
+    var raw = dim ? groupValueOf(t, dim) : '全体';
     if (!map.has(raw)) {
-      map.set(raw, { raw: raw, label: dim ? dimLabelOf(dim, raw) : '全体',
+      map.set(raw, { raw: raw, label: dim ? groupLabelOf(t, dim, raw) : '全体',
                      byDay: {}, total: 0, days: 0 });
     }
     var g = map.get(raw);
@@ -2302,6 +2325,14 @@ function dailyByGroup(trades, dim, unit) {
   /* 並びは損益の大きい順。グラフの色と比較表の色をこの順で揃える */
   var groups = Array.from(map.values()).sort(function (a, b) { return b.total - a.total; });
   return { days: Object.keys(daySet).sort(), groups: groups };
+}
+
+function groupValueOf(t, dim) {
+  return dim === 'analysis' ? analysisGroupKey(t) : dimValueOf(t, dim);
+}
+
+function groupLabelOf(t, dim, value) {
+  return dim === 'analysis' ? analysisGroupLabel(t) : dimLabelOf(dim, value);
 }
 
 function groupColor(i) { return GROUP_COLORS[i % GROUP_COLORS.length]; }
@@ -2547,14 +2578,14 @@ function analysisDateKey(ms) {
   return d.getFullYear() + '-' + ('0' + (d.getMonth() + 1)).slice(-2) + '-' + ('0' + d.getDate()).slice(-2);
 }
 
-function buildCombinationAnalysis(trades) {
+function buildCombinationAnalysis(trades, dim) {
   var byEa = new Map();
   trades.forEach(function (trade, index) {
     if (!trade.closed) return;
     var closeAt = analysisTimeMs(trade.time);
     if (!isFinite(closeAt)) return;
-    var raw = dimValueOf(trade, 'ea');
-    if (!byEa.has(raw)) byEa.set(raw, { raw: raw, label: dimLabelOf('ea', raw), events: [], exposure: [], exposureTradeCount: 0 });
+    var raw = groupValueOf(trade, dim);
+    if (!byEa.has(raw)) byEa.set(raw, { raw: raw, label: groupLabelOf(trade, dim, raw), events: [], exposure: [], exposureTradeCount: 0 });
     var group = byEa.get(raw);
     var value = moneyValue(trade);
     if (isFinite(value)) group.events.push({ at: closeAt, value: value, day: ymd(trade), index: index });
@@ -2704,7 +2735,7 @@ function compareMetric(label, value, klass) {
 
 /* グラフと同じ「確定取引・表示単位」でカードを作る。
    純損益だけは口座通貨の金額を常に併記し、pips表示時にも金額感を失わないようにする。 */
-function renderCompareSummary(dg, trades, unit) {
+function renderCompareSummary(dg, trades, unit, dim) {
   var section = document.getElementById('compareSummarySection');
   if (!section) return;
   section.hidden = state.tab !== 'compare';
@@ -2715,13 +2746,15 @@ function renderCompareSummary(dg, trades, unit) {
   var suffix = isPips ? ' pips' : '';
   document.getElementById('compareSummaryCards').innerHTML = dg.groups.map(function (group, i) {
     var moneyList = trades.filter(function (t) {
-      return t.closed && dimValueOf(t, 'ea') === group.raw;
+      return t.closed && groupValueOf(t, dim) === group.raw;
     });
     var list = isPips ? moneyList.filter(function (t) { return typeof t.pips === 'number'; }) : moneyList;
     var s = stats(list, unit === 'pips' ? 'pips' : 'net');
     var money = stats(moneyList, 'net');
     if (!s || !money) return '';
-    var status = eaStatusLabel(group.label);
+    var status = dim === 'analysis'
+      ? eaStatusLabel(analysisGroupStatusKey(group.raw), group.label)
+      : eaStatusLabel(group.raw, group.label);
     return '<article class="compare-summary-card" style="border-top-color:' + groupColor(i) + '">'
       + '<div class="compare-summary-head"><span class="dot" style="background:' + groupColor(i) + '"></span>'
       + '<strong title="' + esc(group.label) + '">' + esc(group.label) + '</strong><span class="tag">' + esc(status) + '</span></div>'
@@ -2750,23 +2783,23 @@ function renderCompare(trades, dim, unit) {
   if (summarySection) summarySection.hidden = state.tab !== 'compare';
   var isPips = unit === 'pips';
   var f = isPips ? fpips : fx;
-  var dimName = dim ? DIM_LABEL[dim] : '';
+  var dimName = dim === 'analysis' ? analysisGroupNoun() : (dim ? DIM_LABEL[dim] : '');
   var usingBasket = state.tab === 'compare' && state.compareEa.size > 0;
   var dg = dailyByGroup(trades, dim, unit);
   var n = dg.groups.length;
   document.getElementById('cmpCount').textContent = n + (usingBasket ? ' / ' + state.compareEa.size : '') + ' EA';
 
-  if (dim !== 'ea') {
+  if (dim !== 'ea' && dim !== 'analysis') {
     body.hidden = true;
     if (state.tab === 'compare') clearCompareCharts();
-    note.textContent = 'EA組み合わせ分析は、EA分析の表で2件以上のEAに「比較」をチェックしてから開いてください。';
+    note.textContent = '組み合わせ分析は、評価ボードで2件以上に「比較」をチェックしてから開いてください。';
     return;
   }
   if (n < 2) {
     body.hidden = true;
     if (state.tab === 'compare') clearCompareCharts();
     note.textContent = usingBasket
-      ? 'EA分析で選んだ比較対象のうち、現在の期間・口座条件に取引があるEAが2件未満です。'
+      ? '評価ボードで選んだ比較対象のうち、現在の期間・口座条件に取引がある対象が2件未満です。'
       : '比較するには、' + (dimName ? '「' + dimName + '」のリスト' : '絞り込みのリスト')
       + 'で2つ以上にチェックを入れてください。チェックしたものだけがここで比較されます。';
     return;
@@ -2780,13 +2813,13 @@ function renderCompare(trades, dim, unit) {
     return;
   }
   body.hidden = false;
-  renderCompareSummary(dg, trades, unit);
+  renderCompareSummary(dg, trades, unit, dim);
   if (state.tab === 'compare') drawCompareTrends(dg, f);
-  note.textContent = (usingBasket ? 'EA分析から選んだEA ' : dimName + ' ') + n + ' 件を比較しています'
+  note.textContent = (usingBasket ? '評価ボードから選んだ' + analysisGroupNoun() + ' ' : dimName + ' ') + n + ' 件を比較しています'
     + '（取引のあった ' + dg.days.length + ' 日・累積グラフは' + (isPips ? 'pips' : '金額')
     + '・確定した取引のみ）。組み合わせ分析の損失日・DDは実質損益、同時保有はEntry/Exit日時で計算します。';
 
-  var analysis = buildCombinationAnalysis(trades);
+  var analysis = buildCombinationAnalysis(trades, dim);
   renderPairDecisionCards(analysis);
 }
 
@@ -3237,10 +3270,10 @@ document.querySelector('.side').addEventListener('toggle', function (e) {
    分析面積を奪わない右パネルに置き、適用中の条件だけを本文に常時表示する。 */
 var VIEW_META = {
   home:      { title: '運用状況', subtitle: '運用全体の損益・残高・ドローダウンの状態を確認します。' },
-  group:     { title: 'EA分析', subtitle: 'EAごとの成績を比較し、継続・観察・改善の判断材料を確認します。' },
-  compare:   { title: 'EA組み合わせ分析', subtitle: '選択したEAの保有時間・損失日・DD期間の重なりを確認します。' },
+  group:     { title: 'EA・マジック分析', subtitle: '既定はマジック番号ごとに成績を比較し、必要に応じてEAグループへまとめます。' },
+  compare:   { title: '組み合わせ分析', subtitle: '選択したマジックまたはEAグループの保有時間・損失日・DD期間の重なりを確認します。' },
   trades:    { title: '取引履歴', subtitle: '個々の取引を絞り込み、成績の背景を確認します。' },
-  data:      { title: 'データ管理', subtitle: '読み込む口座データと、マジック番号・EA名の対応を管理します。' }
+  data:      { title: 'データ管理', subtitle: '読み込む口座データと、マジック番号・EAグループの対応を管理します。' }
 };
 function showTab(name) {
   state.tab = name;
@@ -3257,14 +3290,13 @@ function showTab(name) {
   document.getElementById('viewTitle').textContent = meta.title;
   document.getElementById('viewSubtitle').textContent = meta.subtitle;
   var compareTitle = document.getElementById('compareTitle');
-  if (compareTitle) compareTitle.textContent = 'EA組み合わせ分析';
+  if (compareTitle) compareTitle.textContent = '組み合わせ分析';
   var compareTrend = document.getElementById('compareTrendSection');
   if (compareTrend) compareTrend.hidden = name !== 'compare';
   var compareSummary = document.getElementById('compareSummarySection');
   if (compareSummary) compareSummary.hidden = name !== 'compare';
   document.querySelector('.main').scrollTop = 0;
-  /* EA分析は常にEA名を行単位にする。前画面でマジック等を集計軸にしていても、
-     タブを開いた時点で評価ボードと比較チェックをEA単位に描き直す。 */
+  /* 評価ボードは、選択されたマジック／EAグループ単位で描き直す。 */
   if ((name === 'home' || name === 'group' || name === 'compare') && state.sources.length) render();
 }
 
@@ -3545,8 +3577,8 @@ on('periodNext', 'click', function () {
 
    ソースだけは軸ではなく常時効く絞り込みにしている
    （どの口座のデータを見るかは、何で集計するかとは別の話のため）。 */
-/* 掘り下げる順序。EA名を選んだ次はシンボルを見たいことが多い */
-var DIMS = ['ea', 'symbol', 'magic'];
+/* 掘り下げる順序。既定のマジックから、シンボル・EA名の順で確認する。 */
+var DIMS = ['magic', 'symbol', 'ea'];
 
 function dimValueOf(t, dim) {
   if (dim === 'magic') return t.magic;
@@ -3862,15 +3894,16 @@ function renderMobileStatus(summary, eaRows, recentTrades) {
     : '<div class="mobile-empty">表示できる取引がありません</div>';
 
   var alerts = eaRows.filter(function (row) {
-    var status = state.eaStatuses[row.label] || '';
+    var status = eaStatusValue(row.statusKey || row.label, row.label);
     return status === 'stop' || status === 'improve';
   }).sort(function (a, b) {
-    return eaStatusPriority(a.label) - eaStatusPriority(b.label) || a.money.net - b.money.net;
+    return eaStatusPriority(a.statusKey || a.label, a.label) - eaStatusPriority(b.statusKey || b.label, b.label)
+      || a.money.net - b.money.net;
   }).slice(0, 3);
   document.getElementById('mobileEaAlerts').innerHTML = alerts.length
     ? alerts.map(function (row) {
       return '<div class="mobile-alert"><div><b>' + esc(row.label) + '</b><span>'
-        + esc(eaStatusLabel(row.label)) + '</span></div><strong class="' + cls(row.money.net) + '">'
+        + esc(eaStatusLabel(row.statusKey || row.label, row.label)) + '</span></div><strong class="' + cls(row.money.net) + '">'
         + fx(row.money.net) + '</strong></div>';
     }).join('')
     : '<div class="mobile-empty">停止候補・改善に設定されたEAはありません</div>';
@@ -4025,6 +4058,84 @@ function markSortHeader(tableId) {
 
 var DIM_LABEL = { ea: 'EA名', magic: 'マジック', symbol: 'シンボル', source: 'ソース' };
 
+/* EA分析の単位はまずマジック番号。必要なときだけ、対応表で同じ名前を付けた
+   マジックをEAグループとして束ねる。口座別のキーは表示用の文字列ではなく
+   エンコードした値を使い、口座名に記号が含まれても衝突しないようにする。 */
+function analysisGrouping() {
+  var el = document.getElementById('analysisGrouping');
+  return el && el.value === 'ea' ? 'ea' : 'magic';
+}
+
+function splitAccountMagic() {
+  var el = document.getElementById('splitAccountMagic');
+  return !!(el && el.checked);
+}
+
+function analysisGroupKey(t) {
+  var mode = analysisGrouping();
+  var base = mode === 'magic' ? (t.magic || '0') : (t.ea || UNKNOWN_EA);
+  if (!splitAccountMagic()) return mode + '|' + encodeURIComponent(base);
+  return mode + '|' + encodeURIComponent(t.source || '-') + '|' + encodeURIComponent(base);
+}
+
+function analysisGroupLabel(t) {
+  var mode = analysisGrouping();
+  var base = mode === 'magic' ? dimLabelOf('magic', t.magic || '0') : (t.ea || UNKNOWN_EA);
+  return splitAccountMagic() ? (t.source || '-') + ' / ' + base : base;
+}
+
+/* 比較対象は内部キーで保持するため、画面・印刷では必ず表示名へ戻す。
+   描画済みの行があればそのラベルを優先し、印刷時のようにキャッシュが無い場合も
+   キーから安全に復元できる。 */
+function analysisGroupLabelForKey(raw) {
+  var cached = (state.analysisGroupLabels || {})[raw];
+  if (cached) return cached;
+  var parts = String(raw || '').split('|');
+  if ((parts[0] !== 'magic' && parts[0] !== 'ea') || parts.length < 2) return String(raw || '');
+  var decode = function (part) {
+    try { return decodeURIComponent(part); } catch (e) { return part; }
+  };
+  var base = decode(parts[parts.length - 1]);
+  if (parts[0] === 'magic') base = dimLabelOf('magic', base);
+  return parts.length >= 3 ? decode(parts[1]) + ' / ' + base : base;
+}
+
+function analysisGroupStatusKey(raw) { return 'analysis:' + raw; }
+
+function analysisGroupNoun() { return analysisGrouping() === 'magic' ? 'マジック' : 'EA'; }
+
+/* 表示先にかかわらず同じグループ定義・統計を使う。
+   評価ボード、スマホの要注意一覧、印刷レポートで別実装にすると、
+   マジック統合や口座分離の修正が一方だけに漏れる。 */
+function buildGroupedRows(trades, mode, unit) {
+  var groups = new Map();
+  trades.forEach(function (t) {
+    var raw = mode ? groupValueOf(t, mode) : '全体';
+    if (!groups.has(raw)) {
+      groups.set(raw, {
+        raw: raw, label: mode ? groupLabelOf(t, mode, raw) : '全体',
+        statusKey: mode === 'analysis' ? analysisGroupStatusKey(raw) : raw,
+        magics: new Set(), eaNames: new Set(), symbols: new Set(), list: []
+      });
+    }
+    var g = groups.get(raw);
+    g.magics.add(t.magic);
+    g.eaNames.add(t.ea);
+    g.symbols.add(t.symbol);
+    g.list.push(t);
+  });
+  return Array.from(groups.values()).map(function (g) {
+    g.s = stats(g.list, unit === 'pips' ? 'pips' : 'net') || stats(g.list, 'net');
+    g.money = stats(g.list, 'net');
+    g.pips = stats(g.list, 'pips');
+    return g;
+  });
+}
+
+function buildAnalysisRows(trades, unit) {
+  return buildGroupedRows(trades, 'analysis', unit);
+}
+
 function render() {
   closeMetricHelp();
   var trades = filtered();
@@ -4112,50 +4223,36 @@ function render() {
   renderAccountSnapshot();
   var compareTrades = trades;
   var compareDim = state.activeDim;
-  /* EA分析から選んだ比較対象があるときだけ、その選択を比較タブに適用する。
-     EA名の通常選択はバスケットで置き換え、マジック／シンボル等の条件はそのまま残す。 */
+  /* 評価ボードから選んだ比較対象があるときだけ、その選択を比較タブに適用する。
+     同じ軸の通常選択はバスケットで置き換え、ほかの条件はそのまま残す。 */
   if (state.tab === 'compare' && state.compareEa.size) {
-    compareTrades = (state.activeDim === 'ea' ? contextTrades() : trades).filter(function (t) {
-      return state.compareEa.has(dimValueOf(t, 'ea'));
+    compareTrades = (state.activeDim === analysisGrouping() ? contextTrades() : trades).filter(function (t) {
+      return state.compareEa.has(analysisGroupKey(t));
     });
-    compareDim = 'ea';
+    compareDim = 'analysis';
   }
   renderCompare(compareTrades, compareDim, unit);
   renderPortfolioInsights(trades, unit);
 
-  /* EA分析画面は常にEA名で集計する。右パネルのマジック・シンボル等は
-     対象を絞るための条件として使い、評価ボードの行名はぶれさせない。 */
-  var mode = state.tab === 'group' ? 'ea' : state.activeDim;
-  var groups = new Map();
-  for (var i = 0; i < trades.length; i++) {
-    var t = trades[i];
-    var raw = mode ? dimValueOf(t, mode) : '全体';
-    if (!groups.has(raw)) {
-      groups.set(raw, {
-        raw: raw, label: mode ? dimLabelOf(mode, raw) : '全体',
-        magics: new Set(), symbols: new Set(), list: []
-      });
-    }
-    var g = groups.get(raw);
-    g.magics.add(t.magic);
-    g.symbols.add(t.symbol);
-    g.list.push(t);
-  }
-  var rows = Array.from(groups.values()).map(function (g) {
-    g.s = stats(g.list, isPips ? 'pips' : 'net') || stats(g.list, 'net');
-    g.money = stats(g.list, 'net');
-    g.pips = stats(g.list, 'pips');
-    return g;
-  });
+  /* 評価ボードは既定でマジック番号別。対応表で同じEAグループ名を付けた
+     マジックだけ、切替時に1つのEAとして集計する。 */
+  var mode = state.tab === 'group' ? 'analysis' : state.activeDim;
+  var rows = mode === 'analysis'
+    ? buildAnalysisRows(trades, unit)
+    : buildGroupedRows(trades, mode, unit);
   var mobileRecent = mobileRecentTrades(state.trades, 20);
-  renderMobileStatus(s, rows, mobileRecent);
+  renderMobileStatus(s, buildAnalysisRows(trades, unit), mobileRecent);
   renderMobileTradeList(mobileRecent);
+  state.analysisGroupLabels = {};
+  rows.forEach(function (g) { state.analysisGroupLabels[g.raw] = g.label; });
+  var groupNoun = mode === 'analysis' ? analysisGroupNoun() : (mode ? DIM_LABEL[mode] : '全体');
   var totalEaRows = rows.length;
-  rows = rows.filter(function (g) { return matchesEaStatusFilter(g.label); });
+  rows = rows.filter(function (g) { return matchesEaStatusFilter(g.statusKey, g.label); });
   rows = sortRows(rows, 'groupTable', function (g, k) {
     if (k === 'label') return g.label;
-    if (k === 'status') return eaStatusPriority(g.label);
-    if (k === 'magics') return Array.from(g.magics).sort().join(',');
+    if (k === 'status') return eaStatusPriority(g.statusKey, g.label);
+    if (k === 'magics') return (mode === 'analysis' && analysisGrouping() === 'magic'
+      ? Array.from(g.eaNames) : Array.from(g.magics)).sort().join(',');
     if (k === 'symbols') return Array.from(g.symbols).filter(Boolean).sort().join(',');
     if (k === 'net') return g.money.net;
     if (k === 'pips') return g.pips ? g.pips.net : null;
@@ -4170,7 +4267,7 @@ function render() {
   renderEaStatusFilter();
   renderComparePicker();
   document.getElementById('groupCount').textContent = state.eaStatusFilter
-    ? rows.length + ' / ' + totalEaRows + ' EA' : rows.length + ' EA';
+    ? rows.length + ' / ' + totalEaRows + ' ' + groupNoun : rows.length + ' ' + groupNoun;
   state.csvGroups = rows;
   /* 純損益と合計pipsは常に両方出るが、勝率・PF・最大DD・平均・取引数は
      表示単位に従って計算される。どちらの基準か分からないと誤読するので明示する。 */
@@ -4181,12 +4278,21 @@ function render() {
   document.getElementById('thMaxDD').firstChild.nodeValue = isPips ? '最大DD(pips)' : '最大DD';
   document.getElementById('thAvg').firstChild.nodeValue = isPips ? '平均(pips)' : '平均';
 
+  document.getElementById('groupHeading').firstChild.nodeValue = (mode === 'analysis'
+    ? (analysisGrouping() === 'magic' ? 'マジック別評価ボード ' : 'EAグループ評価ボード ')
+    : groupNoun + '別評価ボード ');
+  document.getElementById('groupLabelHeader').textContent = groupNoun;
+  document.getElementById('groupMagicsHeader').textContent = (mode === 'analysis' && analysisGrouping() === 'magic')
+    ? 'EA名（参考）' : 'マジック';
   document.getElementById('groupNote').textContent =
-    'EA名ごとの評価ボードです。列見出しの「↕」をクリックすると並び替えできます。'
+    groupNoun + 'ごとの評価ボードです。列見出しの「↕」をクリックすると並び替えできます。'
     + '運用判断は 停止候補 → 改善 → 観察 → 検証中 → 継続 → 未設定 の優先順です。'
     + (state.eaStatusFilter ? '　／　運用判断「' + filterLabel + '」で絞り込み中' : '')
     + '　／　取引数・勝率・PF・最大DD・平均は表示単位「' + u + '」で計算'
-    + (isPips ? '（pipsを算出できない取引は除外）' : '');
+    + (isPips ? '（pipsを算出できない取引は除外）' : '')
+    + (mode === 'analysis' ? (splitAccountMagic()
+      ? '　／　同じ番号・名前も口座ごとに分離中'
+      : '　／　同じ番号・名前は口座をまたいで合算中') : '');
 
   /* 評価ボードでは行クリックによる掘り下げをせず、EA単位の判断を保つ。 */
   var canDrill = false;
@@ -4195,6 +4301,8 @@ function render() {
     var mgs = Array.from(g.magics).sort(function (a, b) {
       return (Number(a) || 0) - (Number(b) || 0);
     }).join(', ');
+    var eaNames = Array.from(g.eaNames).filter(Boolean).sort().join(', ');
+    var detail = (mode === 'analysis' && analysisGrouping() === 'magic') ? eaNames : mgs;
     /* グループ名とマジック一覧は列幅に収まらず切れるので全文を title に入れる。
        EA名でまとめるとマジックが何個も並ぶため、無いと読めない。 */
     return '<tr' + (canDrill ? ' class="drillable" data-gv="' + esc(g.raw) + '"' : '') + '>'
@@ -4202,11 +4310,11 @@ function render() {
         + '<span class="dot" style="background:'
           + (g.money.net >= 0 ? 'var(--pos)' : 'var(--neg)') + '"></span>'
         + (canDrill ? '<span class="dchev">›</span>' : '') + esc(g.label) + '</td>'
-      + '<td>' + eaStatusSelect(g.label) + '</td>'
+      + '<td>' + eaStatusSelect(g.statusKey, g.label) + '</td>'
       + '<td class="compare-ea-cell"><input class="compare-ea-check" type="checkbox" data-compare-ea="'
         + esc(g.raw) + '"' + (state.compareEa.has(g.raw) ? ' checked' : '')
         + ' aria-label="' + esc(g.label) + 'を比較対象に追加"></td>'
-      + '<td title="' + esc(mgs) + '">' + esc(mgs) + '</td>'
+      + '<td title="' + esc(detail) + '">' + esc(detail || '-') + '</td>'
       + '<td title="' + esc(syms) + '">' + esc(syms || '-') + '</td>'
       + '<td class="num">' + g.s.n + '</td>'
       + '<td class="num ' + cls(g.money.net) + '">' + fx(g.money.net) + '</td>'
@@ -4288,7 +4396,7 @@ function mapGroups() {
     var t = state.trades[i];
     var m = t.magic || '0';
     var account = t.source || '-';
-    var key = account + '\u0000' + m;
+    var key = accountMagicKey(account, m);
     if (!groups[key]) groups[key] = { account: account, magic: m, n: 0, net: 0, auto: '', samples: {} };
     var g = groups[key];
     g.n++;
@@ -4316,7 +4424,7 @@ function renderMapTable() {
   var list = onlyUnresolved ? all.filter(function (g) { return g.unresolved; }) : all;
 
   var summary = document.getElementById('mapSummary');
-  if (summary) summary.textContent = '手動設定 ' + manual + ' 件 ／ 自動判定 ' + automatic
+  if (summary) summary.textContent = '手動のEAグループ指定 ' + manual + ' 件 ／ 自動判定 ' + automatic
     + ' 件 ／ 要確認 ' + unresolved + ' 件。要確認にはEA名またはマジック番号を取得できなかったものが含まれます。';
 
   document.getElementById('mapCount').textContent = all.length + ' 口座別マジック';
@@ -4504,7 +4612,7 @@ function reportFilterLines() {
   });
   if (state.compareEa.size >= 2) {
     lines.push('比較対象: ' + Array.from(state.compareEa).map(function (raw) {
-      return dimLabelOf('ea', raw);
+      return analysisGroupLabelForKey(raw);
     }).join('、'));
   }
   return lines;
@@ -4528,31 +4636,18 @@ function reportAccountRows(trades) {
 }
 
 function reportEaRows(trades, unit) {
-  var groups = new Map();
-  trades.forEach(function (t) {
-    var raw = dimValueOf(t, 'ea');
-    if (!groups.has(raw)) groups.set(raw, { raw: raw, label: dimLabelOf('ea', raw), list: [], magics: new Set(), symbols: new Set() });
-    var g = groups.get(raw);
-    g.list.push(t);
-    g.magics.add(t.magic);
-    g.symbols.add(t.symbol);
-  });
-  return Array.from(groups.values()).map(function (g) {
-    g.s = stats(g.list, unit === 'pips' ? 'pips' : 'net') || stats(g.list, 'net');
-    g.money = stats(g.list, 'net');
-    return g;
-  }).sort(function (a, b) { return b.money.net - a.money.net; });
+  return buildAnalysisRows(trades, unit).sort(function (a, b) { return b.money.net - a.money.net; });
 }
 
 function reportMetric(label, value, kind) {
   return '<div class="metric"><div>' + esc(label) + '</div><strong class="' + (kind || '') + '">' + esc(value) + '</strong></div>';
 }
 
-/* 比較バスケットは通常のEA名選択だけを置き換え、期間・口座・マジック・シンボルの条件は維持する。 */
+/* 比較バスケットは通常の分析単位の選択だけを置き換え、期間・口座・シンボルの条件は維持する。 */
 function reportComparisonTrades(trades) {
   if (state.compareEa.size < 2) return [];
-  var base = state.activeDim === 'ea' ? contextTrades() : trades;
-  return base.filter(function (t) { return state.compareEa.has(dimValueOf(t, 'ea')); });
+  var base = state.activeDim === analysisGrouping() ? contextTrades() : trades;
+  return base.filter(function (t) { return state.compareEa.has(analysisGroupKey(t)); });
 }
 
 function comparisonSeries(dg) {
@@ -4628,24 +4723,25 @@ function reportComparisonSection(trades, unit) {
   var fmt = isPips ? fpips : fx;
   var suffix = isPips ? ' pips' : '';
   var compared = reportComparisonTrades(trades);
-  var dg = dailyByGroup(compared, 'ea', unit);
+  var noun = analysisGroupNoun();
+  var dg = dailyByGroup(compared, 'analysis', unit);
   if (dg.groups.length < 2) {
-    return '<section><h2>選択EAの比較結果</h2><p class="note">比較対象のうち、現在の期間・口座・絞り込み条件に確定取引があるEAが2件未満のため、比較結果を作成できませんでした。</p></section>';
+    return '<section><h2>選択した' + noun + 'の比較結果</h2><p class="note">比較対象のうち、現在の期間・口座・絞り込み条件に確定取引がある対象が2件未満のため、比較結果を作成できませんでした。</p></section>';
   }
   var series = comparisonSeries(dg);
   var cards = dg.groups.map(function (group, i) {
-    var moneyList = compared.filter(function (t) { return t.closed && dimValueOf(t, 'ea') === group.raw; });
+    var moneyList = compared.filter(function (t) { return t.closed && analysisGroupKey(t) === group.raw; });
     var list = isPips ? moneyList.filter(function (t) { return typeof t.pips === 'number'; }) : moneyList;
     var s = stats(list, unit === 'pips' ? 'pips' : 'net'), money = stats(moneyList, 'net');
-    return '<article class="report-compare-card" style="border-top-color:' + groupColor(i) + '"><b>' + esc(group.label) + '</b><span>' + esc(eaStatusLabel(group.label)) + '</span>'
+    return '<article class="report-compare-card" style="border-top-color:' + groupColor(i) + '"><b>' + esc(group.label) + '</b><span>' + esc(eaStatusLabel(analysisGroupStatusKey(group.raw), group.label)) + '</span>'
       + '<div>純損益 <strong class="' + cls(money.net) + '">' + fx(money.net) + '</strong></div>'
       + '<div>PF <strong>' + pfStr(s.pf) + '</strong></div><div>最大DD <strong>' + fmt(s.maxDD) + suffix + '</strong></div>'
       + '<div>取引数 <strong>' + s.n + '</strong> ／ 勝率 <strong>' + s.winRate.toFixed(1) + '%</strong></div></article>';
   }).join('');
-  var combination = buildCombinationAnalysis(compared);
-  return '<section><h2>選択EAの比較結果</h2><p class="note">EA分析で選んだ ' + dg.groups.length + ' EA を比較しています。累積推移・合計DDは確定取引のみ、PFなどの評価指標は表示単位（' + (isPips ? 'pips' : '金額') + '）で計算しています。</p>'
+  var combination = buildCombinationAnalysis(compared, 'analysis');
+  return '<section><h2>選択した' + noun + 'の比較結果</h2><p class="note">評価ボードで選んだ ' + dg.groups.length + ' ' + noun + ' を比較しています。累積推移・合計DDは確定取引のみ、PFなどの評価指標は表示単位（' + (isPips ? 'pips' : '金額') + '）で計算しています。</p>'
     + '<div class="report-compare-grid">' + cards + '</div>'
-    + '<h3>EA別の累積損益推移</h3>' + reportLineSvg(series.lines, dg.days, fmt, false)
+    + '<h3>' + noun + '別の累積損益推移</h3>' + reportLineSvg(series.lines, dg.days, fmt, false)
     + '<h3>合計ドローダウン推移</h3>' + reportLineSvg([{ label: '合計DD', color: '#c5443c', values: series.dd }], dg.days, fmt, true)
     + '<h3>EA組み合わせ分析</h3><p class="note">A→B はAを基準にした割合です。DDは決済時刻ごとの累積実質損益で判定します。</p>' + reportCombinationTable(combination) + '</section>';
 }
@@ -4683,7 +4779,7 @@ function reportHtml(trades, unit) {
   }).join('') || '<tr><td colspan="5">該当する口座はありません</td></tr>';
 
   var eas = eaRows.map(function (g) {
-    return '<tr><td>' + esc(g.label) + '</td><td>' + esc(eaStatusLabel(g.label)) + '</td>'
+    return '<tr><td>' + esc(g.label) + '</td><td>' + esc(eaStatusLabel(g.statusKey, g.label)) + '</td>'
       + '<td class="num">' + g.s.n + '</td><td class="num ' + cls(g.money.net) + '">' + fx(g.money.net) + '</td>'
       + '<td class="num">' + g.s.winRate.toFixed(1) + '%</td><td class="num">' + pfStr(g.s.pf) + '</td>'
       + '<td class="num">' + fmt(g.s.maxDD) + suffix + '</td></tr>';
@@ -4714,7 +4810,7 @@ function reportHtml(trades, unit) {
     + '<section class="filters"><b>適用中の条件</b><div class="chips">' + filters.map(function (line) { return '<span class="chip">' + esc(line) + '</span>'; }).join('') + '</div></section>'
     + '<section><h2>運用サマリー</h2><div class="metrics">' + metrics + '</div></section>'
     + '<section><h2>口座スナップショット</h2><p class="note">推定残高は、読み込み範囲の入出金と確定取引の実質損益を口座ごとに集計しています。</p><table><thead><tr><th>口座</th><th class="num">期間損益</th><th class="num">推定残高</th><th class="num">入出金</th><th class="num">最大DD</th></tr></thead><tbody>' + accounts + '</tbody></table></section>'
-    + '<section><h2>EA評価ボード</h2><p class="note">純損益は金額、その他の評価指標は表示単位（' + (isPips ? 'pips' : '金額') + '）で計算しています。</p><table><thead><tr><th>EA名</th><th>運用判断</th><th class="num">取引数</th><th class="num">純損益</th><th class="num">勝率</th><th class="num">PF</th><th class="num">最大DD</th></tr></thead><tbody>' + eas + '</tbody></table></section>'
+    + '<section><h2>' + analysisGroupNoun() + '別評価ボード</h2><p class="note">純損益は金額、その他の評価指標は表示単位（' + (isPips ? 'pips' : '金額') + '）で計算しています。</p><table><thead><tr><th>' + analysisGroupNoun() + '</th><th>運用判断</th><th class="num">取引数</th><th class="num">純損益</th><th class="num">勝率</th><th class="num">PF</th><th class="num">最大DD</th></tr></thead><tbody>' + eas + '</tbody></table></section>'
     + comparison
     + '<section><h2>取引実績</h2><p class="note">現在の保有量・証拠金リスクではなく、選択期間の確定取引を集計しています。</p><div class="grid"><div><h3>通貨ペア別</h3><table><thead><tr><th>通貨ペア</th><th class="num">取引数</th><th class="num">構成比</th><th class="num">' + (isPips ? '合計pips' : '損益') + '</th></tr></thead><tbody>' + symbols + '</tbody></table></div><div><h3>BUY / SELL</h3><table><thead><tr><th>方向</th><th class="num">取引数</th><th class="num">構成比</th><th class="num">' + (isPips ? '合計pips' : '損益') + '</th></tr></thead><tbody>' + directions + '</tbody></table></div></div></section>'
     + '<footer class="foot">このレポートは読み込み済みの取引履歴からローカルで生成されています。未決済ポジション、現在の証拠金、リアルタイム情報は含みません。</footer>'
@@ -5020,6 +5116,15 @@ on('autoMerge', 'change', function () {
   saveSettings();
   if (!state.diag) return;
   refreshIdentity();
+});
+
+/* 分析単位を変えると、以前の比較チェックは別の対象を指すため外す。 */
+['analysisGrouping', 'splitAccountMagic'].forEach(function (id) {
+  document.getElementById(id).addEventListener('change', function () {
+    state.compareEa.clear();
+    saveSettings();
+    render();
+  });
 });
 
 /* 集約は結合のやり直しが必要（元データから作り直す） */
